@@ -4,7 +4,6 @@ import './index.css';
 import StepBar from './components/ui/StepBar';
 import VehicleSelector from './components/VehicleSelector/VehicleSelector';
 import AccessoryGrid from './components/AccessoryGrid/AccessoryGrid';
-import PreviewCanvas from './components/PreviewCanvas/PreviewCanvas';
 import LogBox, { type LogEntry } from './components/LogBox/LogBox';
 import type { Vehicle } from './types';
 
@@ -41,6 +40,14 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('STABILITY_API_KEY') || '');
+
+  const handleApiKeyChange = (val: string) => {
+    setApiKey(val);
+    if (val) localStorage.setItem('STABILITY_API_KEY', val);
+    else localStorage.removeItem('STABILITY_API_KEY');
+  };
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -151,7 +158,7 @@ export default function App() {
       generatedImageUrl: entry.generatedImageUrl,
     };
     setConfig(restoredConfig);
-    setStep(3);
+    setStep(2);
     setShowHistory(false);
     addLog('action', 'Configuration loaded from history', `${entry.vehicle.make} ${entry.vehicle.model}`);
   }, [addLog]);
@@ -168,23 +175,35 @@ export default function App() {
   }, [addLog]);
 
   const handleSetConfig = useCallback(async (newConfig: Configuration) => {
+    let nextConfig = { ...newConfig };
+
     if (newConfig.vehicle?.id !== config.vehicle?.id) {
       addLog('action', `Vehicle selected: ${newConfig.vehicle?.make} ${newConfig.vehicle?.model} ${newConfig.vehicle?.variant} (${newConfig.vehicle?.year})`);
+      
+      // If a vehicle was already selected and we are changing to a different one, clear previous configuration
+      if (config.vehicle) {
+        nextConfig.selectedAccessories = [];
+        nextConfig.generatedImageUrl = null;
+        nextConfig.generatedImages = [];
+        nextConfig.customPrompt = '';
+      }
     }
-    if (newConfig.selectedAccessories.length !== config.selectedAccessories.length) {
-      const added = newConfig.selectedAccessories.filter(a => !config.selectedAccessories.find(ca => ca.id === a.id));
-      const removed = config.selectedAccessories.filter(a => !newConfig.selectedAccessories.find(ca => ca.id === a.id));
+
+    if (nextConfig.selectedAccessories.length !== config.selectedAccessories.length) {
+      const added = nextConfig.selectedAccessories.filter(a => !config.selectedAccessories.find(ca => ca.id === a.id));
+      const removed = config.selectedAccessories.filter(a => !nextConfig.selectedAccessories.find(ca => ca.id === a.id));
       added.forEach(a => addLog('action', `Accessory added: ${a.name} ($${a.price})`));
       removed.forEach(a => addLog('action', `Accessory removed: ${a.name}`));
     }
+
     // If image was generated, convert to base64 and add to history
-    if (newConfig.generatedImageUrl && !config.generatedImageUrl) {
-      const base64Url = await addToHistory(newConfig);
+    if (nextConfig.generatedImageUrl && !config.generatedImageUrl) {
+      const base64Url = await addToHistory(nextConfig);
       if (base64Url) {
-        newConfig = { ...newConfig, generatedImageUrl: base64Url };
+        nextConfig = { ...nextConfig, generatedImageUrl: base64Url };
       }
     }
-    setConfig(newConfig);
+    setConfig(nextConfig);
   }, [config, addLog, addToHistory]);
 
   const handleSetStep = useCallback((newStep: Step) => {
@@ -215,20 +234,58 @@ export default function App() {
     <div className="min-h-screen bg-[#121212]">
       {/* Navbar */}
       <div className="bg-gray-900 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <a 
+          href="/" 
+          onClick={(e) => {
+            e.preventDefault();
+            handleSetStep(1);
+            if (showHistory) setShowHistory(false);
+          }}
+          className="flex items-center gap-2"
+        >
           <span className="font-black text-xl tracking-wide text-white uppercase">
             Acc<span className="text-yellow-400">essorize</span>
           </span>by 
           <span className="text-2xl font-bold text-blue-400 font-mono">ISPG</span>
-        </div>
+        </a>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowApiKeyInput(!showApiKeyInput);
+                if (showHistory) setShowHistory(false);
+              }}
+              className={`text-xs cursor-pointer px-3 py-1.5 rounded-lg transition-colors ${showApiKeyInput ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`}
+            >
+              API Key
+            </button>
+            {showApiKeyInput && (
+              <div className="absolute right-0 mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
+                <label className="block text-xs font-bold text-gray-300 mb-2">Stability AI API Key</label>
+                <input 
+                  type="password" 
+                  value={apiKey}
+                  onChange={e => handleApiKeyChange(e.target.value)}
+                  placeholder="sk-..."
+                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[10px] text-gray-400 mt-2 leading-tight">
+                  Your key is stored only in your local browser storage and is sent directly to the Stability API to generate images.
+                </p>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={() => setShowHistory(!showHistory)}
-            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${showHistory ? 'bg-yellow-400 text-gray-900' : 'text-gray-400 hover:text-white'}`}
+            onClick={() => {
+              setShowHistory(!showHistory);
+              if (showApiKeyInput) setShowApiKeyInput(false);
+            }}
+            className={`text-xs px-3 cursor-pointer  py-1.5 rounded-lg transition-colors ${showHistory ? 'bg-yellow-400 text-gray-900' : 'text-gray-400 hover:text-white'}`}
           >
             History ({history.length})
           </button>
-          <span className="text-xs text-gray-400">POC Demo</span>
+          <span className="text-xs text-gray-400 cursor-default">POC Demo</span>
         </div>
       </div>
 
@@ -326,18 +383,7 @@ export default function App() {
             <AccessoryGrid
               config={config}
               setConfig={handleSetConfig}
-              onNext={() => handleSetStep(3)}
               onBack={() => handleSetStep(1)}
-              isGenerating={isGenerating}
-              setIsGenerating={handleSetIsGenerating}
-              addLog={addLog}
-            />
-          )}
-          {step === 3 && (
-            <PreviewCanvas
-              config={config}
-              setConfig={handleSetConfig}
-              onBack={() => handleSetStep(2)}
               isGenerating={isGenerating}
               setIsGenerating={handleSetIsGenerating}
               addLog={addLog}

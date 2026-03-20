@@ -1,4 +1,4 @@
-export type Step = 1 | 2 | 3;
+export type Step = 1 | 2;
 
 export interface Vehicle {
   id: string;

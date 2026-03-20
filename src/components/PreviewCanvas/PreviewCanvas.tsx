@@ -8,13 +8,12 @@ import type { LogEntry } from '../LogBox/LogBox';
 interface Props {
   config: Configuration;
   setConfig: (c: Configuration) => void;
-  onBack: () => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
   addLog: (type: LogEntry['type'], message: string, details?: string) => void;
 }
 
-export default function PreviewCanvas({ config, setConfig, onBack, isGenerating, setIsGenerating, addLog }: Props) {
+export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGenerating, addLog }: Props) {
   const [prompt, setPrompt] = useState(config.customPrompt);
   const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
   const [progress, setProgress] = useState(0);
@@ -27,7 +26,7 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
   const dragStart = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const total = config.selectedAccessories.reduce((sum, a) => sum + a.price, 0);
+  // Removed unused total
   
   const handleZoomIn = () => setScale(prev => Math.min(prev * 1.25, 4));
   const handleZoomOut = () => setScale(prev => Math.max(prev / 1.25, 0.5));
@@ -55,9 +54,11 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
     setIsDragging(false);
   }, []);
 
-  async function handleRegenerate(overrideViewPrompt?: string) {
+  async function handleRegenerate(overrideViewPrompt?: string, viewName?: string) {
     if (!config.vehicle) return;
-    if (overrideViewPrompt) {
+    if (viewName) {
+      addLog('action', `Generate view clicked: ${viewName}`);
+    } else if (overrideViewPrompt) {
       addLog('action', `Generate view clicked: ${overrideViewPrompt}`);
     } else {
       addLog('action', 'Regenerate clicked');
@@ -88,7 +89,7 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
       if (newImages.length === 0 && config.generatedImageUrl) {
          newImages.push({ url: config.generatedImageUrl, view: 'Initial', prompt: config.customPrompt });
       }
-      newImages.push({ url: result.imageUrl, view: overrideViewPrompt || 'Custom', prompt: finalPrompt });
+      newImages.push({ url: result.imageUrl, view: viewName || overrideViewPrompt || 'Custom', prompt: finalPrompt });
 
       setConfig({ 
         ...config, 
@@ -113,20 +114,18 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
       {/* Loading Overlay */}
       {isGenerating && <LoadingOverlay loadingMsg={loadingMsg} progress={progress} />}
 
-      <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">Step 3 of 3</p>
-      <h2 className="text-md font-bold">Preview</h2>
-      <p className="text-sm text-gray-500 mb-6">AI-generated visualization of your configured vehicle</p>
+      {/* Removed step header since this is now combined inside AccessoryGrid */}
 
-      <div className="grid grid-cols-[1fr_280px] gap-6">
+      <div className="w-full">
         {/* Preview Image */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
+
+          <div className="bg-grey-900 rounded-xl border border-gray-200 overflow-hidden mb-4">
+            <div className="flex items-center gap-2 m-2">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             <span className="text-xs text-gray-400">AI Generated Preview</span>
           </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-            <div className="flex h-96">
+          <div className="flex h-96">
               {/* Left Side: Main Preview */}
               <div 
                 ref={containerRef}
@@ -233,7 +232,7 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
               </div>
 
               {/* Prompt Editor */}
-              <div className="mt-4">
+              <div className={`mt-4 ${!config.generatedImageUrl ? 'opacity-60 grayscale' : ''}`}>
                 <div className="text-xs uppercase tracking-wider text-gray-400 mb-2">Refine with custom prompt</div>
                 <div className="flex gap-2">
                   <input
@@ -241,25 +240,33 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
                     placeholder="e.g. matte black finish, night scene..."
-                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    disabled={!config.generatedImageUrl || isGenerating}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:opacity-70 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
                   />
                   <button
                     onClick={() => handleRegenerate()}
-                    className="bg-yellow-400 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm hover:bg-yellow-300 whitespace-nowrap"
+                    disabled={!config.generatedImageUrl || isGenerating}
+                    className="bg-yellow-400 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm hover:bg-yellow-300 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
-                    Regenerate
+                    {isGenerating ? 'Regenerating...' : 'Regenerate'}
                   </button>
                 </div>
                 
-                <div className="text-xs uppercase tracking-wider text-gray-400 mb-2">Generate angles</div>
+                <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">Generate angles</div>
                 <div className="flex flex-wrap gap-2">
-                  {['Front View', 'Side View', 'Rear View', 'Top View'].map(view => (
+                  {[
+                    { name: 'Front View', prompt: 'exterior front three-quarter view, showing the front grille and headlights clearly' },
+                    { name: 'Side View', prompt: 'exterior full side profile view, perfectly horizontal camera angle showing doors and wheels' },
+                    { name: 'Rear View', prompt: 'exterior rear three-quarter view from behind, showing taillights, trunk, and rear bumper' },
+                    { name: 'Top View', prompt: 'exterior aerial drone view from straight above the roof, showing the entire car from top-down' }
+                  ].map(view => (
                     <button
-                      key={view}
-                      onClick={() => handleRegenerate(view)}
-                      className="border border-gray-300 text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white"
+                      key={view.name}
+                      onClick={() => handleRegenerate(view.prompt, view.name)}
+                      disabled={!config.generatedImageUrl || isGenerating}
+                      className="border border-gray-300 cursor-pointer text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
                     >
-                      + {view}
+                      + {view.name}
                     </button>
                   ))}
                 </div>
@@ -268,66 +275,7 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
           </div>
         </div>
 
-        {/* Config Side Panel */}
-        <div className="flex flex-col gap-3">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-xs uppercase tracking-widest text-gray-400 mb-3">Vehicle</div>
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">🛻</span>
-              <div>
-                <div className="font-semibold text-sm">{config.vehicle?.model} {config.vehicle?.variant}</div>
-                <div className="text-xs text-gray-400">{config.vehicle?.year} · {config.vehicle?.make}</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-xs uppercase tracking-widest text-gray-400 mb-3">Accessories</div>
-            {config.selectedAccessories.map(a => (
-              <div key={a.id} className="flex justify-between py-1.5 border-b border-gray-100 text-sm">
-                <span className="text-gray-700">{a.name}</span>
-                <span className="text-yellow-500 font-semibold text-xs">${a.price}</span>
-              </div>
-            ))}
-            <div className="flex justify-between pt-2 font-semibold text-sm">
-              <span>Total</span>
-              <span className="text-yellow-500">${total.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-xs uppercase tracking-widest text-gray-400 mb-3">Actions</div>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  addLog('action', 'Save Configuration clicked', `Total: $${total.toLocaleString()}`);
-                  alert('Save — Phase 2');
-                }}
-                className="w-full bg-yellow-400 text-gray-900 font-bold py-2.5 rounded-lg text-sm hover:bg-yellow-300"
-              >
-                Save Configuration
-              </button>
-              <button
-                onClick={() => {
-                  addLog('action', 'Share Link clicked');
-                  alert('Share — Phase 2');
-                }}
-                className="w-full border border-gray-200 text-gray-500 py-2 rounded-lg text-sm hover:bg-gray-50"
-              >
-                Share Link
-              </button>
-              <button
-                onClick={() => {
-                  addLog('action', 'Change Accessories clicked');
-                  onBack();
-                }}
-                className="w-full border border-gray-200 text-gray-500 py-2 rounded-lg text-sm hover:bg-gray-50"
-              >
-                ← Change Accessories
-              </button>
-            </div>
-          </div>
-        </div>
+        {/* Removed redundant Config Side Panel */}
       </div>
     </div>
   );

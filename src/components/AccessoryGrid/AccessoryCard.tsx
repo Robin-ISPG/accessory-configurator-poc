@@ -10,20 +10,23 @@ export default function AccessoryCard({ accessory, selected, onToggle }: Props) 
   return (
     <div
       onClick={onToggle}
-      className={`bg-white rounded-xl p-3 border cursor-pointer transition-all flex gap-3 items-start
-        ${selected ? 'border-yellow-400 border-2 bg-yellow-50' : 'border-gray-200 hover:border-gray-400'}`}
+      className={`relative bg-white rounded-xl p-3 border cursor-pointer transition-all flex flex-col items-center text-center
+        ${selected ? 'border-yellow-400 border-2 bg-yellow-50' : 'border-gray-200 hover:border-gray-300'}`}
     >
-      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-xl flex-shrink-0">
-        🔧
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-800">{accessory.name}</div>
-        <div className="text-xs text-yellow-500 font-semibold">${accessory.price}</div>
-      </div>
-      <div className={`w-5 h-5 rounded-full border flex items-center justify-center text-xs flex-shrink-0 mt-0.5
-        ${selected ? 'bg-yellow-400 border-yellow-400 text-white' : 'border-gray-300'}`}>
+      {/* Absolute positioned checkbox */}
+      <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold
+        ${selected ? 'bg-yellow-400 border-yellow-400 text-gray-900' : 'border-gray-300 bg-white'}`}>
         {selected ? '✓' : ''}
       </div>
+
+      <div className="w-12 h-12 bg-gray-50 rounded-lg flex items-center justify-center text-2xl mb-2 mt-1">
+        🔧
+      </div>
+      
+      <div className="text-xs font-bold text-gray-800 leading-tight mb-1 min-h-[32px] flex items-center">
+        {accessory.name}
+      </div>
+      <div className="text-xs text-yellow-600 font-black">${accessory.price}</div>
     </div>
   );
 }

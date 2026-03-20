@@ -12,9 +12,9 @@ interface Props {
 }
 
 export default function VehicleSelector({ config, setConfig, onNext, addLog }: Props) {
-  const [make, setMake] = useState('');
-  const [model, setModel] = useState('');
-  const [year, setYear] = useState('');
+  const [make, setMake] = useState(config.vehicle?.make || '');
+  const [model, setModel] = useState(config.vehicle?.model || '');
+  const [year, setYear] = useState(config.vehicle?.year || '');
 
   const filteredVehicles = vehicles.filter(v =>
     (!make || v.make === make) &&

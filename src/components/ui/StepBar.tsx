@@ -1,6 +1,6 @@
 interface Props { currentStep: number; }
 
-const steps = ['Vehicle', 'Accessories', 'Preview'];
+const steps = ['Vehicle', 'Configure'];
 
 export default function StepBar({ currentStep }: Props) {
   return (

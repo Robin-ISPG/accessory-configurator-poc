@@ -8,19 +8,19 @@ import LoadingOverlay from '../ui/LoadingOverlay';
 type Category = 'exterior' | 'wheels' | 'interior' | 'performance';
 const categories: Category[] = ['exterior', 'wheels', 'interior', 'performance'];
 
+import PreviewCanvas from '../PreviewCanvas/PreviewCanvas';
 import type { LogEntry } from '../LogBox/LogBox';
 
 interface Props {
   config: Configuration;
   setConfig: (c: Configuration) => void;
-  onNext: () => void;
   onBack: () => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
   addLog: (type: LogEntry['type'], message: string, details?: string) => void;
 }
 
-export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGenerating, setIsGenerating, addLog }: Props) {
+export default function AccessoryGrid({ config, setConfig, onBack, isGenerating, setIsGenerating, addLog }: Props) {
   const [activeCategory, setActiveCategory] = useState<Category>('exterior');
   const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
   const [progress, setProgress] = useState(0);
@@ -72,7 +72,7 @@ export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGen
         `Time: ${result.apiCallDetails.timestamp}`
       );
       
-      setTimeout(() => { setIsGenerating(false); setProgress(0); onNext(); }, 400);
+      setTimeout(() => { setIsGenerating(false); setProgress(0); }, 400);
     } catch (err) {
       clearInterval(interval);
       setIsGenerating(false);
@@ -87,92 +87,110 @@ export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGen
       {/* Loading Overlay */}
       {isGenerating && <LoadingOverlay loadingMsg={loadingMsg} progress={progress} />}
 
-      <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">Step 2 of 3</p>
-      <h1 className="text-2xl font-bold mb-1">Choose Accessories</h1>
-      <p className="text-sm text-gray-500 mb-6">Select one or more accessories for your {config.vehicle?.model}</p>
-
-      <div className="grid grid-cols-[1fr_300px] gap-6">
-        {/* Left: Accessory Grid */}
-        <div>
-          {/* Category Tabs */}
-          <div className="flex border-b border-gray-200 mb-4">
-            {categories.map(cat => (
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
+        {/* Left: Accessory Grid & Configuration Summary */}
+        <div className="flex flex-col min-h-[500px] h-full gap-6">
+          <div className="bg-slate-300 rounded-xl border border-gray-200 overflow-hidden flex flex-col h-[calc(100vh-63px)] sticky top-4">
+            
+            {/* Vehicle Header */}
+            <div className="p-4 border-b border-gray-200 bg-slate-400 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="text-sm font-bold text-gray-900 font-bold">{config.vehicle?.model} {config.vehicle?.variant}</div>
+                  <div className="text-xs text-slate-200 font-bold">{config.vehicle?.year}</div>
+                </div>
+              </div>
               <button
-                key={cat}
                 onClick={() => {
-                  addLog('action', `Category tab clicked: ${cat}`);
-                  setActiveCategory(cat);
+                  addLog('action', 'Change Vehicle clicked');
+                  onBack();
                 }}
-                className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors
-                  ${activeCategory === cat ? 'border-yellow-400 text-yellow-500' : 'border-transparent text-gray-400 hover:text-gray-700'}`}
+                className="btn btn-primary bg-slate-200 p-2 font-bold uppercase rounded-lg cursor-pointer text-xs hover:text-gray-500"
               >
-                {cat}
+                Change Vehicle / Variant
               </button>
-            ))}
-          </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {filtered.map(acc => (
-              <AccessoryCard
-                key={acc.id}
-                accessory={acc}
-                selected={!!config.selectedAccessories.find(a => a.id === acc.id)}
-                onToggle={() => toggleAccessory(acc)}
-              />
-            ))}
+            {/* Configurator Scrollable Area */}
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
+              
+              {/* Category Tabs */}
+              <div>
+                <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-3 pb-1 border-b border-gray-100">
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        addLog('action', `Category tab clicked: ${cat}`);
+                        setActiveCategory(cat);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold capitalize rounded-full whitespace-nowrap transition-colors
+                        ${activeCategory === cat ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {filtered.map(acc => (
+                    <AccessoryCard
+                      key={acc.id}
+                      accessory={acc}
+                      selected={!!config.selectedAccessories.find(a => a.id === acc.id)}
+                      onToggle={() => toggleAccessory(acc)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Selected Accessories Summary */}
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Selected ({config.selectedAccessories.length})</div>
+                {config.selectedAccessories.length === 0 ? (
+                  <div className="text-sm text-gray-400 italic py-2">No accessories selected</div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {config.selectedAccessories.map(a => (
+                      <div key={a.id} className="flex justify-between items-center text-sm">
+                        <span className="text-gray-700 max-w-[200px] truncate" title={a.name}>{a.name}</span>
+                        <span className="text-gray-900 font-semibold text-xs">${a.price}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Sticky Action Area */}
+            <div className="p-4 border-t border-gray-200 bg-white shrink-0">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm font-semibold text-gray-500">Total</span>
+                <span className="text-lg font-bold text-yellow-500">${totalPrice.toLocaleString()}</span>
+              </div>
+              <button
+                onClick={() => {
+                  addLog('api', 'Generate Preview clicked', `Vehicle: ${config.vehicle?.make} ${config.vehicle?.model}, Accessories: ${config.selectedAccessories.map(a => a.name).join(', ')}`);
+                  handleGenerate();
+                }}
+                disabled={config.selectedAccessories.length === 0 || isGenerating}
+                className="w-full bg-yellow-400 text-gray-900 font-bold uppercase tracking-wide py-3 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-yellow-300 transition-colors shadow-sm"
+              >
+                {isGenerating ? 'Generating...' : 'Generate Preview →'}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Right: Summary Panel */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 h-fit sticky top-4">
-          <div className="text-xs uppercase tracking-widest text-gray-400 mb-3">Your Configuration</div>
-
-          {/* Vehicle Summary */}
-          <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 mb-4">
-            <span className="text-2xl">🛻</span>
-            <div>
-              <div className="text-sm font-semibold">{config.vehicle?.model} {config.vehicle?.variant}</div>
-              <div className="text-xs text-gray-400">{config.vehicle?.year}</div>
-            </div>
-          </div>
-
-          {/* Selected Accessories */}
-          {config.selectedAccessories.length === 0 ? (
-            <div className="text-center text-sm text-gray-400 py-4">No accessories selected</div>
-          ) : (
-            <div className="mb-3">
-              {config.selectedAccessories.map(a => (
-                <div key={a.id} className="flex justify-between items-center py-1.5 border-b border-gray-100 text-sm">
-                  <span className="text-gray-700">{a.name}</span>
-                  <span className="text-yellow-500 font-semibold text-xs">${a.price}</span>
-                </div>
-              ))}
-              <div className="flex justify-between items-center pt-2 font-semibold text-sm">
-                <span>Total</span>
-                <span className="text-yellow-500">${totalPrice.toLocaleString()}</span>
-              </div>
-            </div>
-          )}
-
-          <button
-            onClick={() => {
-              addLog('api', 'Generate Preview clicked', `Vehicle: ${config.vehicle?.make} ${config.vehicle?.model}, Accessories: ${config.selectedAccessories.map(a => a.name).join(', ')}`);
-              handleGenerate();
-            }}
-            disabled={config.selectedAccessories.length === 0 || isGenerating}
-            className="w-full bg-yellow-400 text-gray-900 font-bold uppercase tracking-wide py-3 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-yellow-300 transition-colors mb-2"
-          >
-            Generate Preview →
-          </button>
-          <button
-            onClick={() => {
-              addLog('action', 'Change Vehicle clicked');
-              onBack();
-            }}
-            className="w-full border border-gray-200 text-gray-500 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
-          >
-            ← Change Vehicle
-          </button>
+        {/* Right: Preview Area */}
+        <div className="flex flex-col min-h-[500px]">
+           <PreviewCanvas 
+             config={config}
+             setConfig={setConfig}
+             isGenerating={isGenerating}
+             setIsGenerating={setIsGenerating}
+             addLog={addLog}
+           />
         </div>
       </div>
     </div>

@@ -1,7 +1,5 @@
 import axios from 'axios';
 
-const STABILITY_API_KEY = import.meta.env.VITE_STABILITY_API_KEY;
-
 export interface GenerateImageParams {
   vehicleMake: string;
   vehicleModel: string;
@@ -24,9 +22,15 @@ export interface GenerateImageResult {
 }
 
 function buildPrompt(params: GenerateImageParams): string {
-  const accList = params.accessories.join(', ');
-  const custom = params.customPrompt ? `. ${params.customPrompt}` : '';
-  return `A professional automotive photograph of a ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel} with ${accList} installed${custom}. Studio lighting, high quality, photorealistic, 4K resolution.`;
+  const custom = params.customPrompt ? `${params.customPrompt.trim()}, ` : '';
+  
+  let accPhrase = '';
+  if (params.accessories.length > 0) {
+    const accList = params.accessories.join(' and ');
+    accPhrase = `featuring highly detailed, perfectly fitted, factory-compatible ((${accList})). CLEAR FOCUS on the ${accList}. `;
+  }
+
+  return `${custom}A flawless, highly detailed professional automotive studio photograph of a single ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}. ${accPhrase}Isolated on a clean, minimalist white studio backdrop. Sharp focus on the vehicle and modifications, zero background distractions. Photorealistic, 8k resolution, masterpiece.`;
 }
 
 const imageCache = new Map<string, GenerateImageResult>();
@@ -40,9 +44,12 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   }
 
   const timestamp = new Date().toISOString();
+  const customKey = localStorage.getItem('STABILITY_API_KEY');
+  // Use from env only if API key is not added in the frontend UI
+  const activeToken = customKey ? customKey : (import.meta.env.VITE_STABILITY_API_KEY || '');
 
-  // For POC: if no API key, return a placeholder after a fake delay
-  if (!STABILITY_API_KEY) {
+  // For POC: if no API key in UI or env, return a placeholder after a fake delay
+  if (!activeToken) {
     await new Promise(resolve => setTimeout(resolve, 3000));
     const text = encodeURIComponent(`${params.vehicleModel}${params.customPrompt ? ' - ' + params.customPrompt : ''}`);
     const fakeResult = {
@@ -53,7 +60,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
         method: 'POST',
         prompt,
         outputFormat: 'jpeg',
-        authType: 'Bearer Token (VITE_STABILITY_API_KEY not set - using placeholder)',
+        authType: 'None (API Key missing in UI and Env - using placeholder)',
         timestamp,
       },
     };
@@ -64,6 +71,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   // Real Stability AI img2img call
   const formData = new FormData();
   formData.append('prompt', prompt);
+  formData.append('negative_prompt', 'background details, complex background, outdoors, scenery, environment, malformed accessories, extra parts, mutated, distorted, poorly drawn, ugly, mismatched parts, out of frame');
   formData.append('output_format', 'jpeg');
 
   const response = await axios.post(
@@ -71,7 +79,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     formData,
     {
       headers: {
-        Authorization: `Bearer ${STABILITY_API_KEY}`,
+        Authorization: `Bearer ${activeToken}`,
         Accept: 'image/*',
       },
       responseType: 'blob',
