@@ -23,4 +23,5 @@ export interface Configuration {
   selectedAccessories: Accessory[];
   customPrompt: string;
   generatedImageUrl: string | null;
+  generatedImages?: { url: string; view: string; prompt: string }[];
 }

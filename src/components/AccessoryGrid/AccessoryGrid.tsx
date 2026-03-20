@@ -8,6 +8,8 @@ import LoadingOverlay from '../ui/LoadingOverlay';
 type Category = 'exterior' | 'wheels' | 'interior' | 'performance';
 const categories: Category[] = ['exterior', 'wheels', 'interior', 'performance'];
 
+import type { LogEntry } from '../LogBox/LogBox';
+
 interface Props {
   config: Configuration;
   setConfig: (c: Configuration) => void;
@@ -15,9 +17,10 @@ interface Props {
   onBack: () => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
+  addLog: (type: LogEntry['type'], message: string, details?: string) => void;
 }
 
-export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGenerating, setIsGenerating }: Props) {
+export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGenerating, setIsGenerating, addLog }: Props) {
   const [activeCategory, setActiveCategory] = useState<Category>('exterior');
   const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
   const [progress, setProgress] = useState(0);
@@ -59,11 +62,22 @@ export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGen
       clearInterval(interval);
       setProgress(100);
       setConfig({ ...config, generatedImageUrl: result.imageUrl });
+      
+      // Log API call details
+      addLog('api', `Stability AI API Call - ${result.apiCallDetails.method}`, 
+        `Endpoint: ${result.apiCallDetails.endpoint}\n` +
+        `Prompt: "${result.apiCallDetails.prompt}"\n` +
+        `Output Format: ${result.apiCallDetails.outputFormat}\n` +
+        `Auth: ${result.apiCallDetails.authType}\n` +
+        `Time: ${result.apiCallDetails.timestamp}`
+      );
+      
       setTimeout(() => { setIsGenerating(false); setProgress(0); onNext(); }, 400);
     } catch (err) {
       clearInterval(interval);
       setIsGenerating(false);
       setProgress(0);
+      addLog('error', 'Stability AI API Call Failed', err instanceof Error ? err.message : 'Unknown error');
       alert('Image generation failed. Check your API key.');
     }
   }
@@ -85,7 +99,10 @@ export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGen
             {categories.map(cat => (
               <button
                 key={cat}
-                onClick={() => setActiveCategory(cat)}
+                onClick={() => {
+                  addLog('action', `Category tab clicked: ${cat}`);
+                  setActiveCategory(cat);
+                }}
                 className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors
                   ${activeCategory === cat ? 'border-yellow-400 text-yellow-500' : 'border-transparent text-gray-400 hover:text-gray-700'}`}
               >
@@ -138,14 +155,20 @@ export default function AccessoryGrid({ config, setConfig, onNext, onBack, isGen
           )}
 
           <button
-            onClick={handleGenerate}
+            onClick={() => {
+              addLog('api', 'Generate Preview clicked', `Vehicle: ${config.vehicle?.make} ${config.vehicle?.model}, Accessories: ${config.selectedAccessories.map(a => a.name).join(', ')}`);
+              handleGenerate();
+            }}
             disabled={config.selectedAccessories.length === 0 || isGenerating}
             className="w-full bg-yellow-400 text-gray-900 font-bold uppercase tracking-wide py-3 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-yellow-300 transition-colors mb-2"
           >
             Generate Preview →
           </button>
           <button
-            onClick={onBack}
+            onClick={() => {
+              addLog('action', 'Change Vehicle clicked');
+              onBack();
+            }}
             className="w-full border border-gray-200 text-gray-500 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
           >
             ← Change Vehicle
