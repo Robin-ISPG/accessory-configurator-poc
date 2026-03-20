@@ -105,12 +105,7 @@ export default function App() {
     addLog('info', 'Logs cleared');
   }, [addLog]);
 
-  const clearSavedData = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setConfig(defaultConfig);
-    setStep(1);
-    addLog('action', 'Saved configuration cleared');
-  }, [addLog]);
+
 
   const addToHistory = useCallback(async (configToSave: Configuration): Promise<string | null> => {
     if (!configToSave.vehicle) return null;
