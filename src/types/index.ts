@@ -25,3 +25,5 @@ export interface Configuration {
   generatedImageUrl: string | null;
   generatedImages?: { url: string; view: string; prompt: string }[];
 }
+
+export type ApiProvider = 'stability' | 'huggingface';

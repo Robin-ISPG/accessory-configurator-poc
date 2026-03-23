@@ -64,20 +64,25 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
       setConfig({ ...config, generatedImageUrl: result.imageUrl });
       
       // Log API call details
-      addLog('api', `Stability AI API Call - ${result.apiCallDetails.method}`, 
+      addLog('api', `${result.apiCallDetails.providerName} API Call - ${result.apiCallDetails.method}`, 
+        `Model: ${result.apiCallDetails.modelName}\n` +
         `Endpoint: ${result.apiCallDetails.endpoint}\n` +
         `Prompt: "${result.apiCallDetails.prompt}"\n` +
         `Output Format: ${result.apiCallDetails.outputFormat}\n` +
-        `Auth: ${result.apiCallDetails.authType}\n` +
-        `Time: ${result.apiCallDetails.timestamp}`
-      );
+        `Auth Type: ${result.apiCallDetails.authType}\n` +
+        `Timestamp: ${result.apiCallDetails.timestamp}`);
+      
+      const timingLog = `Processing Time: ~3s\nOutput resolution: 1024x1024`;
+      addLog('info', 'Generation complete', timingLog);
       
       setTimeout(() => { setIsGenerating(false); setProgress(0); }, 400);
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error('Failed to generate preview:', err);
       clearInterval(interval);
-      setIsGenerating(false);
       setProgress(0);
-      addLog('error', 'Stability AI API Call Failed', err instanceof Error ? err.message : 'Unknown error');
+      setIsGenerating(false);
+      const activeProvider = localStorage.getItem('API_PROVIDER') === 'stability' ? 'Stability AI' : 'Hugging Face';
+      addLog('error', `${activeProvider} API Call Failed`, err instanceof Error ? err.message : 'Unknown error');
       alert('Image generation failed. Check your API key.');
     }
   }

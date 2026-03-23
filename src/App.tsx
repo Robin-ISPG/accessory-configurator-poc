@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Step, Configuration, Accessory } from './types';
+import type { Step, Configuration, Accessory, ApiProvider } from './types';
 import './index.css';
 import StepBar from './components/ui/StepBar';
 import VehicleSelector from './components/VehicleSelector/VehicleSelector';
@@ -41,12 +41,22 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('STABILITY_API_KEY') || '');
+  const [apiProvider, setApiProvider] = useState<ApiProvider>(() => (localStorage.getItem('API_PROVIDER') as ApiProvider) || 'huggingface');
+  const [apiKeys, setApiKeys] = useState({
+    stability: localStorage.getItem('STABILITY_API_KEY') || '',
+    huggingface: localStorage.getItem('HUGGINGFACE_API_KEY') || '',
+  });
 
-  const handleApiKeyChange = (val: string) => {
-    setApiKey(val);
-    if (val) localStorage.setItem('STABILITY_API_KEY', val);
-    else localStorage.removeItem('STABILITY_API_KEY');
+  const handleProviderChange = (provider: ApiProvider) => {
+    setApiProvider(provider);
+    localStorage.setItem('API_PROVIDER', provider);
+  };
+
+  const handleApiKeyChange = (provider: ApiProvider, val: string) => {
+    setApiKeys(prev => ({ ...prev, [provider]: val }));
+    const storageKey = provider === 'stability' ? 'STABILITY_API_KEY' : 'HUGGINGFACE_API_KEY';
+    if (val) localStorage.setItem(storageKey, val);
+    else localStorage.removeItem(storageKey);
   };
 
   // Load from localStorage on mount
@@ -260,17 +270,41 @@ export default function App() {
               API Key
             </button>
             {showApiKeyInput && (
-              <div className="absolute right-0 mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
-                <label className="block text-xs font-bold text-gray-300 mb-2">Stability AI API Key</label>
+              <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-gray-300 mb-2">API Provider</label>
+                  <div className="flex bg-gray-900 rounded-lg p-1">
+                    <button 
+                      onClick={() => handleProviderChange('huggingface')}
+                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold ${apiProvider === 'huggingface' ? 'bg-yellow-400 text-gray-900 shadow' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Hugging Face
+                    </button>
+                    <button 
+                      onClick={() => handleProviderChange('stability')}
+                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold ${apiProvider === 'stability' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Stability AI
+                    </button>
+                  </div>
+                </div>
+
+                <label className="block text-xs font-bold text-gray-300 mb-2">
+                  {apiProvider === 'stability' ? 'Stability AI API Key' : 'Hugging Face Access Token'}
+                </label>
                 <input 
                   type="password" 
-                  value={apiKey}
-                  onChange={e => handleApiKeyChange(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  value={apiKeys[apiProvider]}
+                  onChange={e => handleApiKeyChange(apiProvider, e.target.value)}
+                  placeholder={apiProvider === 'stability' ? 'sk-...' : 'hf_...'}
+                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
                 />
                 <p className="text-[10px] text-gray-400 mt-2 leading-tight">
-                  Your key is stored only in your local browser storage and is sent directly to the Stability API to generate images.
+                  {apiProvider === 'huggingface' 
+                    ? 'Best pick for POC — Completely free, no credit card. Uses Stable Diffusion XL.' 
+                    : 'Requires paid credits. Uses Stability AI Core endpoint for ultra-high quality.'}
+                  <br/>
+                  Stored only in your browser.
                 </p>
               </div>
             )}

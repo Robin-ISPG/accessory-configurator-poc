@@ -102,7 +102,8 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
       setTimeout(() => { setIsGenerating(false); setProgress(0); }, 400);
     } catch (error) {
       console.error(error);
-      addLog('error', 'Image generation failed', error instanceof Error ? error.message : 'Unknown error occurred');
+      const activeProvider = localStorage.getItem('API_PROVIDER') === 'stability' ? 'Stability AI' : 'Hugging Face';
+      addLog('error', `${activeProvider} API generation failed`, error instanceof Error ? error.message : 'Unknown error occurred');
       clearInterval(interval);
       setIsGenerating(false);
       setProgress(0);

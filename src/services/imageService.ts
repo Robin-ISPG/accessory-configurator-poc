@@ -12,6 +12,8 @@ export interface GenerateImageResult {
   imageUrl: string;
   prompt: string;
   apiCallDetails: {
+    providerName: string;
+    modelName: string;
     endpoint: string;
     method: string;
     prompt: string;
@@ -22,16 +24,103 @@ export interface GenerateImageResult {
 }
 
 function buildPrompt(params: GenerateImageParams): string {
-  const custom = params.customPrompt ? `${params.customPrompt.trim()}, ` : '';
-  
   let accPhrase = '';
   if (params.accessories.length > 0) {
     const accList = params.accessories.join(' and ');
     accPhrase = `featuring highly detailed, perfectly fitted, factory-compatible ((${accList})). CLEAR FOCUS on the ${accList}. `;
   }
 
-  return `${custom}A flawless, highly detailed professional automotive studio photograph of a single ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}. ${accPhrase}Isolated on a clean, minimalist white studio backdrop. Sharp focus on the vehicle and modifications, zero background distractions. Photorealistic, 8k resolution, masterpiece.`;
+  // Inject the custom prompt as the highly emphasized primary subject of the photo
+  const subject = params.customPrompt 
+    ? `(((${params.customPrompt.trim()}))) appearance, which is a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
+    : `a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
+
+  return `Hyper-realistic unedited automotive photography of a SINGLE vehicle, shot on medium format camera, razor-sharp focus. A flawless ${subject}. ${accPhrase}Authentic real-world lighting, physically accurate vehicle proportions, perfectly round wheels, flawless geometry, completely isolated on a pure, minimalist white cyclorama studio backdrop. Zero background distractions, absolute physical realism, exact custom appearance and colors, masterpiece. No fantasy, no CGI.`;
 }
+
+const NEGATIVE_PROMPT = 'blueprint, collage, split screen, multiple views, broken wheels, missing wheels, bent wheels, collapsed tires, deformed car body, cambered tires, floating tires, crashed, weird geometry, asymmetrical, toy car, illustration, 3d render, painting, drawing, cartoon, anime, fantasy, imagination, unreal engine, octane render, CGI, digital art, video game, poorly drawn, warped, distorted, mutant, weird colors, fake, sketch, complex background, outdoors, scenery, environment, malformed accessories, extra parts, ugly, mismatched parts, out of frame, out of focus';
+
+import type { ApiProvider } from '../types';
+
+interface ImageProvider {
+  generate(params: GenerateImageParams, options: { token: string, prompt: string, timestamp: string }): Promise<GenerateImageResult>;
+}
+
+const stabilityProvider: ImageProvider = {
+  async generate(_params, { token, prompt, timestamp }) {
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+    formData.append('negative_prompt', NEGATIVE_PROMPT);
+    formData.append('output_format', 'jpeg');
+
+    const response = await axios.post(
+      'https://api.stability.ai/v2beta/stable-image/generate/core',
+      formData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'image/*',
+        },
+        responseType: 'blob',
+      }
+    );
+
+    return {
+      imageUrl: URL.createObjectURL(response.data),
+      prompt,
+      apiCallDetails: {
+        providerName: 'Stability AI',
+        modelName: 'stable-image-core',
+        endpoint: 'https://api.stability.ai/v2beta/stable-image/generate/core',
+        method: 'POST',
+        prompt,
+        outputFormat: 'jpeg',
+        authType: 'Bearer Token',
+        timestamp,
+      },
+    };
+  }
+};
+
+const huggingFaceProvider: ImageProvider = {
+  async generate(_params, { token, prompt, timestamp }) {
+    const response = await axios.post(
+      'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0',
+      { 
+        inputs: prompt,
+        parameters: { negative_prompt: NEGATIVE_PROMPT }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'image/jpeg',
+        },
+        responseType: 'blob',
+      }
+    );
+
+    return {
+      imageUrl: URL.createObjectURL(response.data),
+      prompt,
+      apiCallDetails: {
+        providerName: 'Hugging Face',
+        modelName: 'stable-diffusion-xl-base-1.0',
+        endpoint: 'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0',
+        method: 'POST',
+        prompt,
+        outputFormat: 'jpeg',
+        authType: 'Bearer Token',
+        timestamp,
+      },
+    };
+  }
+};
+
+const providers: Record<ApiProvider, ImageProvider> = {
+  stability: stabilityProvider,
+  huggingface: huggingFaceProvider
+};
 
 const imageCache = new Map<string, GenerateImageResult>();
 
@@ -44,9 +133,18 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   }
 
   const timestamp = new Date().toISOString();
-  const customKey = localStorage.getItem('STABILITY_API_KEY');
-  // Use from env only if API key is not added in the frontend UI
-  const activeToken = customKey ? customKey : (import.meta.env.VITE_STABILITY_API_KEY || '');
+  
+  const providerKey = (localStorage.getItem('API_PROVIDER') as ApiProvider) || 'huggingface';
+  const customKey = providerKey === 'stability' 
+    ? localStorage.getItem('STABILITY_API_KEY') 
+    : localStorage.getItem('HUGGINGFACE_API_KEY');
+    
+  let activeToken = customKey || '';
+  if (!activeToken) {
+    activeToken = providerKey === 'stability'
+      ? import.meta.env.VITE_STABILITY_API_KEY || ''
+      : import.meta.env.VITE_HUGGINGFACE_API_KEY || '';
+  }
 
   // For POC: if no API key in UI or env, return a placeholder after a fake delay
   if (!activeToken) {
@@ -56,11 +154,13 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       imageUrl: `https://placehold.co/800x500/1a1a1a/f0a500?text=${text}`,
       prompt,
       apiCallDetails: {
-        endpoint: 'https://api.stability.ai/v2beta/stable-image/generate/core',
+        providerName: providerKey === 'stability' ? 'Stability AI' : 'Hugging Face',
+        modelName: 'Mock Placeholder',
+        endpoint: 'Placeholder fallback',
         method: 'POST',
         prompt,
         outputFormat: 'jpeg',
-        authType: 'None (API Key missing in UI and Env - using placeholder)',
+        authType: `None (${providerKey} API Key missing - using placeholder)`,
         timestamp,
       },
     };
@@ -68,37 +168,8 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     return fakeResult;
   }
 
-  // Real Stability AI img2img call
-  const formData = new FormData();
-  formData.append('prompt', prompt);
-  formData.append('negative_prompt', 'background details, complex background, outdoors, scenery, environment, malformed accessories, extra parts, mutated, distorted, poorly drawn, ugly, mismatched parts, out of frame');
-  formData.append('output_format', 'jpeg');
-
-  const response = await axios.post(
-    'https://api.stability.ai/v2beta/stable-image/generate/core',
-    formData,
-    {
-      headers: {
-        Authorization: `Bearer ${activeToken}`,
-        Accept: 'image/*',
-      },
-      responseType: 'blob',
-    }
-  );
-
-  const imageUrl = URL.createObjectURL(response.data);
-  const result = {
-    imageUrl,
-    prompt,
-    apiCallDetails: {
-      endpoint: 'https://api.stability.ai/v2beta/stable-image/generate/core',
-      method: 'POST',
-      prompt,
-      outputFormat: 'jpeg',
-      authType: 'Bearer Token',
-      timestamp,
-    },
-  };
+  const provider = providers[providerKey];
+  const result = await provider.generate(params, { token: activeToken, prompt, timestamp });
   
   imageCache.set(prompt, result);
   return result;
