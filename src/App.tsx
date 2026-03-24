@@ -1,20 +1,31 @@
-import { useState, useCallback, useEffect } from 'react';
-import type { Step, Configuration, Accessory, ApiProvider } from './types';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { Step, Configuration, Accessory, ApiProvider, VehicleConfigureMode } from './types';
 import './index.css';
 import StepBar from './components/ui/StepBar';
 import VehicleSelector from './components/VehicleSelector/VehicleSelector';
 import AccessoryGrid from './components/AccessoryGrid/AccessoryGrid';
 import LogBox, { type LogEntry } from './components/LogBox/LogBox';
 import type { Vehicle } from './types';
+import {
+  getPersistedItem,
+  setPersistedItem,
+  removePersistedItem,
+  getStorageEstimate,
+} from './services/persistenceService';
 
 const STORAGE_KEY = 'accessory-configurator-data';
 const HISTORY_KEY = 'accessory-configurator-history';
+const MAX_HISTORY_BYTES = 12 * 1024 * 1024;
+const TARGET_HISTORY_BYTES = 8 * 1024 * 1024;
 
 const defaultConfig: Configuration = {
   vehicle: null,
+  vehicleConfigureMode: 'data',
   selectedAccessories: [],
   customPrompt: '',
   generatedImageUrl: null,
+  categoryReferenceImages: {},
+  accessoryReferenceImages: {},
 };
 
 interface StoredData {
@@ -26,13 +37,21 @@ interface HistoryEntry {
   id: string;
   timestamp: string;
   vehicle: Vehicle;
+  vehicleConfigureMode?: VehicleConfigureMode;
   accessories: Accessory[];
   customPrompt: string;
+  categoryReferenceImages: Record<string, string>;
+  accessoryReferenceImages?: Record<string, string>;
   generatedImageUrl: string | null;
   totalPrice: number;
 }
 
 export default function App() {
+  const getStoredProvider = (): ApiProvider => {
+    const stored = localStorage.getItem('API_PROVIDER');
+    return stored === 'stability' || stored === 'nanobanana' ? stored : 'nanobanana';
+  };
+
   const [step, setStep] = useState<Step>(1);
   const [config, setConfig] = useState<Configuration>(defaultConfig);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -41,11 +60,15 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [apiProvider, setApiProvider] = useState<ApiProvider>(() => (localStorage.getItem('API_PROVIDER') as ApiProvider) || 'huggingface');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showApiKeyValue, setShowApiKeyValue] = useState(false);
+  const [apiProvider, setApiProvider] = useState<ApiProvider>(() => getStoredProvider());
   const [apiKeys, setApiKeys] = useState({
     stability: localStorage.getItem('STABILITY_API_KEY') || '',
-    huggingface: localStorage.getItem('HUGGINGFACE_API_KEY') || '',
+    nanobanana: localStorage.getItem('NANOBANANA_API_KEY') || '',
   });
+  const apiPanelRef = useRef<HTMLDivElement | null>(null);
+  const apiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleProviderChange = (provider: ApiProvider) => {
     setApiProvider(provider);
@@ -54,57 +77,117 @@ export default function App() {
 
   const handleApiKeyChange = (provider: ApiProvider, val: string) => {
     setApiKeys(prev => ({ ...prev, [provider]: val }));
-    const storageKey = provider === 'stability' ? 'STABILITY_API_KEY' : 'HUGGINGFACE_API_KEY';
+    const storageKey = provider === 'stability' ? 'STABILITY_API_KEY' : 'NANOBANANA_API_KEY';
     if (val) localStorage.setItem(storageKey, val);
     else localStorage.removeItem(storageKey);
   };
 
-  // Load from localStorage on mount
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(null), 2200);
+  }, []);
+
+  // Load persisted state on mount (IndexedDB, with one-time localStorage migration).
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    let cancelled = false;
+
+    const restore = async () => {
       try {
-        const data: StoredData = JSON.parse(stored);
-        setStep(data.step);
-        const restoredConfig = {
-          ...data.config,
-          generatedImageUrl: data.config.generatedImageUrl?.startsWith('blob:') ? null : data.config.generatedImageUrl,
-        };
-        setConfig(restoredConfig);
+        const persistedData = await getPersistedItem<StoredData>(STORAGE_KEY);
+        if (!cancelled && persistedData) {
+          setStep(persistedData.step);
+          const mode: VehicleConfigureMode =
+            persistedData.config.vehicleConfigureMode === 'images' ? 'images' : 'data';
+          const restoredConfig: Configuration = {
+            ...persistedData.config,
+            vehicleConfigureMode: mode,
+            accessoryReferenceImages: persistedData.config.accessoryReferenceImages || {},
+            generatedImageUrl: persistedData.config.generatedImageUrl?.startsWith('blob:')
+              ? null
+              : persistedData.config.generatedImageUrl,
+          };
+          setConfig(restoredConfig);
+        } else {
+          const legacyData = localStorage.getItem(STORAGE_KEY);
+          if (!cancelled && legacyData) {
+            const parsedData: StoredData = JSON.parse(legacyData);
+            setStep(parsedData.step);
+            const mode: VehicleConfigureMode =
+              parsedData.config.vehicleConfigureMode === 'images' ? 'images' : 'data';
+            const restoredConfig: Configuration = {
+              ...parsedData.config,
+              vehicleConfigureMode: mode,
+              accessoryReferenceImages: parsedData.config.accessoryReferenceImages || {},
+              generatedImageUrl: parsedData.config.generatedImageUrl?.startsWith('blob:')
+                ? null
+                : parsedData.config.generatedImageUrl,
+            };
+            setConfig(restoredConfig);
+            void setPersistedItem(STORAGE_KEY, parsedData);
+          }
+        }
       } catch {
         console.error('Failed to load saved configuration');
       }
-    }
-    
-    // Load history
-    const storedHistory = localStorage.getItem(HISTORY_KEY);
-    if (storedHistory) {
+
       try {
-        const parsed = JSON.parse(storedHistory);
-        setHistory(parsed);
+        const persistedHistory = await getPersistedItem<HistoryEntry[]>(HISTORY_KEY);
+        if (!cancelled && persistedHistory) {
+          setHistory(persistedHistory);
+        } else {
+          const legacyHistory = localStorage.getItem(HISTORY_KEY);
+          if (!cancelled && legacyHistory) {
+            const parsedHistory: HistoryEntry[] = JSON.parse(legacyHistory);
+            setHistory(parsedHistory);
+            void setPersistedItem(HISTORY_KEY, parsedHistory);
+          }
+        }
       } catch {
         console.error('Failed to load history');
       }
-    }
-    
-    setIsLoaded(true);
-    addLog('info', 'Application loaded');
+
+      if (!cancelled) {
+        setIsLoaded(true);
+        addLog('info', 'Application loaded');
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Save current state to localStorage
+  // Save current state to IndexedDB.
   useEffect(() => {
-    if (isLoaded) {
-      const data: StoredData = { step, config };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    }
+    if (!isLoaded) return;
+    const data: StoredData = { step, config };
+    void setPersistedItem(STORAGE_KEY, data).catch(() => {
+      console.error('Failed to persist current state');
+    });
   }, [step, config, isLoaded]);
 
-  // Save history to localStorage
+  // Save history to IndexedDB.
   useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    }
+    if (!isLoaded) return;
+    void setPersistedItem(HISTORY_KEY, history).catch(() => {
+      console.error('Failed to persist history');
+    });
   }, [history, isLoaded]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!showApiKeyInput) return;
+      const target = event.target as Node;
+      if (apiPanelRef.current?.contains(target) || apiButtonRef.current?.contains(target)) {
+        return;
+      }
+      setShowApiKeyInput(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showApiKeyInput]);
 
   const addLog = useCallback((type: LogEntry['type'], message: string, details?: string) => {
     const entry: LogEntry = {
@@ -122,26 +205,58 @@ export default function App() {
     addLog('info', 'Logs cleared');
   }, [addLog]);
 
+  // Keep history size in check and surface storage pressure.
+  useEffect(() => {
+    if (!isLoaded || history.length === 0) return;
+
+    const encoder = new TextEncoder();
+    let trimmed = history;
+    let bytes = encoder.encode(JSON.stringify(trimmed)).length;
+
+    if (bytes > MAX_HISTORY_BYTES) {
+      while (trimmed.length > 5 && bytes > TARGET_HISTORY_BYTES) {
+        trimmed = trimmed.slice(0, trimmed.length - 1);
+        bytes = encoder.encode(JSON.stringify(trimmed)).length;
+      }
+
+      if (trimmed.length !== history.length) {
+        setHistory(trimmed);
+        addLog('info', 'History auto-pruned to reduce storage usage', `Kept ${trimmed.length} entries`);
+      }
+    }
+
+    void getStorageEstimate().then((estimate) => {
+      if (!estimate || !estimate.quota) return;
+      const usageRatio = estimate.usage / estimate.quota;
+      if (usageRatio >= 0.8) {
+        addLog(
+          'info',
+          'Browser storage usage is high',
+          `${Math.round(usageRatio * 100)}% of quota used`
+        );
+      }
+    });
+  }, [history, isLoaded, addLog]);
+
+  const handleApiKeyCommit = useCallback((provider: ApiProvider, value: string) => {
+    const trimmed = value.trim();
+    handleApiKeyChange(provider, trimmed);
+
+    if (!trimmed) return;
+
+    setShowApiKeyInput(false);
+    addLog('action', `${provider === 'stability' ? 'Stability AI' : 'NanoBanana API'} key saved`);
+    showToast('API key added');
+  }, [addLog, showToast]);
+
 
 
   const addToHistory = useCallback(async (configToSave: Configuration): Promise<string | null> => {
     if (!configToSave.vehicle) return null;
-    
+ 
     let imageUrl = configToSave.generatedImageUrl;
-    
-    // Convert blob URL to base64 data URL for persistence
-    if (imageUrl?.startsWith('blob:')) {
-      try {
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        imageUrl = await new Promise((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        imageUrl = null;
-      }
+    if (imageUrl?.startsWith('blob:') || imageUrl?.startsWith('data:')) {
+      imageUrl = null;
     }
     
     const totalPrice = configToSave.selectedAccessories.reduce((sum, a) => sum + a.price, 0);
@@ -149,13 +264,16 @@ export default function App() {
       id: `${Date.now()}`,
       timestamp: new Date().toISOString(),
       vehicle: configToSave.vehicle,
+      vehicleConfigureMode: configToSave.vehicleConfigureMode,
       accessories: configToSave.selectedAccessories,
       customPrompt: configToSave.customPrompt,
+      categoryReferenceImages: configToSave.categoryReferenceImages || {},
+      accessoryReferenceImages: configToSave.accessoryReferenceImages || {},
       generatedImageUrl: imageUrl,
       totalPrice,
     };
     
-    setHistory(prev => [entry, ...prev].slice(0, 50)); // Keep last 50
+    setHistory(prev => [entry, ...prev].slice(0, 20)); // Keep last 20 to reduce storage pressure
     addLog('action', 'Configuration saved to history', `${configToSave.vehicle.make} ${configToSave.vehicle.model} - $${totalPrice.toLocaleString()}`);
     return imageUrl;
   }, [addLog]);
@@ -163,8 +281,11 @@ export default function App() {
   const loadFromHistory = useCallback((entry: HistoryEntry) => {
     const restoredConfig: Configuration = {
       vehicle: entry.vehicle,
+      vehicleConfigureMode: entry.vehicleConfigureMode === 'images' ? 'images' : 'data',
       selectedAccessories: entry.accessories,
       customPrompt: entry.customPrompt,
+      categoryReferenceImages: entry.categoryReferenceImages || {},
+      accessoryReferenceImages: entry.accessoryReferenceImages || {},
       generatedImageUrl: entry.generatedImageUrl,
     };
     setConfig(restoredConfig);
@@ -181,6 +302,9 @@ export default function App() {
   const clearHistory = useCallback(() => {
     setHistory([]);
     localStorage.removeItem(HISTORY_KEY);
+    void removePersistedItem(HISTORY_KEY).catch(() => {
+      console.error('Failed to clear persisted history');
+    });
     addLog('action', 'History cleared');
   }, [addLog]);
 
@@ -196,6 +320,8 @@ export default function App() {
         nextConfig.generatedImageUrl = null;
         nextConfig.generatedImages = [];
         nextConfig.customPrompt = '';
+        nextConfig.categoryReferenceImages = {};
+        nextConfig.accessoryReferenceImages = {};
       }
     }
 
@@ -261,6 +387,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <div className="relative">
             <button
+              ref={apiButtonRef}
               onClick={() => {
                 setShowApiKeyInput(!showApiKeyInput);
                 if (showHistory) setShowHistory(false);
@@ -270,38 +397,74 @@ export default function App() {
               API Key
             </button>
             {showApiKeyInput && (
-              <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
+              <div ref={apiPanelRef} className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
                 <div className="mb-4">
                   <label className="block text-xs font-bold text-gray-300 mb-2">API Provider</label>
                   <div className="flex bg-gray-900 rounded-lg p-1">
                     <button 
-                      onClick={() => handleProviderChange('huggingface')}
-                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold ${apiProvider === 'huggingface' ? 'bg-yellow-400 text-gray-900 shadow' : 'text-gray-400 hover:text-white'}`}
+                      onClick={() => handleProviderChange('nanobanana')}
+                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-2 ${apiProvider === 'nanobanana' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                     >
-                      Hugging Face
+                      {apiProvider === 'nanobanana' && <span className="h-2 w-2 rounded-full bg-green-400" />}
+                      NanoBanana API
                     </button>
                     <button 
                       onClick={() => handleProviderChange('stability')}
-                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold ${apiProvider === 'stability' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-2 ${apiProvider === 'stability' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                     >
+                      {apiProvider === 'stability' && <span className="h-2 w-2 rounded-full bg-green-400" />}
                       Stability AI
                     </button>
                   </div>
                 </div>
 
                 <label className="block text-xs font-bold text-gray-300 mb-2">
-                  {apiProvider === 'stability' ? 'Stability AI API Key' : 'Hugging Face Access Token'}
+                  {apiProvider === 'stability' ? 'Stability AI API Key' : 'NanoBanana API Key'}
                 </label>
-                <input 
-                  type="password" 
-                  value={apiKeys[apiProvider]}
-                  onChange={e => handleApiKeyChange(apiProvider, e.target.value)}
-                  placeholder={apiProvider === 'stability' ? 'sk-...' : 'hf_...'}
-                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
-                />
+                <div className="relative">
+                  <input 
+                      type={showApiKeyValue ? 'text' : 'password'}
+                      value={apiKeys[apiProvider]}
+                      onChange={e => handleApiKeyChange(apiProvider, e.target.value)}
+                      onBlur={e => handleApiKeyCommit(apiProvider, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          handleApiKeyCommit(apiProvider, (e.target as HTMLInputElement).value);
+                        }
+                      }}
+                      onPaste={e => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text');
+                        handleApiKeyCommit(apiProvider, pasted);
+                      }}
+                      placeholder={apiProvider === 'stability' ? 'sk-...' : 'Enter NanoBanana key'}
+                      className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKeyValue(prev => !prev)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                      title={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                      aria-label={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                    >
+                      {showApiKeyValue ? (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 3l18 18" />
+                          <path d="M10.58 10.58a2 2 0 002.83 2.83" />
+                          <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
+                          <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
+                        </svg>
+                      ) : (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      )}
+                    </button>
+                </div>
                 <p className="text-[10px] text-gray-400 mt-2 leading-tight">
-                  {apiProvider === 'huggingface' 
-                    ? 'Best pick for POC — Completely free, no credit card. Uses Stable Diffusion XL.' 
+                  {apiProvider === 'nanobanana'
+                    ? 'Uses NanoBanana API async generation. Get your API key from nanobananaapi.ai'
                     : 'Requires paid credits. Uses Stability AI Core endpoint for ultra-high quality.'}
                   <br/>
                   Stored only in your browser.
@@ -427,6 +590,11 @@ export default function App() {
       )}
 
       <LogBox logs={logs} onClear={clearLogs} />
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-60 rounded-lg border border-green-400/30 bg-green-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }

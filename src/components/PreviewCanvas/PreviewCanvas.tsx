@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import type { Configuration } from '../../types';
-import { generateImage } from '../../services/imageService';
+import { generateImage, paramsFromConfiguration } from '../../services/imageService';
 import LoadingOverlay from '../ui/LoadingOverlay';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 
 import type { LogEntry } from '../LogBox/LogBox';
 
@@ -17,7 +18,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
   const [prompt, setPrompt] = useState(config.customPrompt);
   const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
   const [progress, setProgress] = useState(0);
-  
+
   // Zoom and pan state
   const [scale, setScale] = useState(1);
   const [translateX, setTranslateX] = useState(0);
@@ -27,7 +28,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Removed unused total
-  
+
   const handleZoomIn = () => setScale(prev => Math.min(prev * 1.25, 4));
   const handleZoomOut = () => setScale(prev => Math.max(prev / 1.25, 0.5));
   const handleReset = () => {
@@ -72,37 +73,35 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
       if (p >= 98) clearInterval(interval);
     }, 100);
 
-    const finalPrompt = overrideViewPrompt ? (prompt ? `${prompt}, ${overrideViewPrompt}` : overrideViewPrompt) : prompt;
+    const strictRetention = "CRITICAL: strictly maintain the exact original vehicle design, styling, color, and make/model, do not alter the vehicle, ONLY change camera angle";
+    const finalPrompt = overrideViewPrompt ? (prompt ? `${prompt}, ${overrideViewPrompt}` : `${overrideViewPrompt}, ${strictRetention}`) : prompt;
 
     try {
-      const result = await generateImage({
-        vehicleMake: config.vehicle.make,
-        vehicleModel: config.vehicle.model,
-        vehicleYear: config.vehicle.year,
-        accessories: config.selectedAccessories.map(a => a.name),
-        customPrompt: finalPrompt,
-      });
+      const genParams = paramsFromConfiguration(config, finalPrompt);
+      if (!genParams) return;
+      const result = await generateImage(genParams);
       clearInterval(interval);
       setProgress(100);
-      
+
       const newImages = [...(config.generatedImages || [])];
       if (newImages.length === 0 && config.generatedImageUrl) {
-         newImages.push({ url: config.generatedImageUrl, view: 'Initial', prompt: config.customPrompt });
+        newImages.push({ url: config.generatedImageUrl, view: 'Initial', prompt: config.customPrompt });
       }
       newImages.push({ url: result.imageUrl, view: viewName || overrideViewPrompt || 'Custom', prompt: finalPrompt });
 
-      setConfig({ 
-        ...config, 
-        generatedImageUrl: result.imageUrl, 
-        customPrompt: prompt, 
-        generatedImages: newImages 
+      setConfig({
+        ...config,
+        generatedImageUrl: result.imageUrl,
+        customPrompt: prompt,
+        generatedImages: newImages
       });
       // Reset zoom on new image
       handleReset();
       setTimeout(() => { setIsGenerating(false); setProgress(0); }, 400);
     } catch (error) {
       console.error(error);
-      const activeProvider = localStorage.getItem('API_PROVIDER') === 'stability' ? 'Stability AI' : 'Hugging Face';
+      const providerKey = localStorage.getItem('API_PROVIDER');
+      const activeProvider = providerKey === 'stability' ? 'Stability AI' : 'NanoBanana API';
       addLog('error', `${activeProvider} API generation failed`, error instanceof Error ? error.message : 'Unknown error occurred');
       clearInterval(interval);
       setIsGenerating(false);
@@ -111,7 +110,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
   }
 
   return (
-    <div>
+    <div className='h-[calc(100vh-155px)]'>
       {/* Loading Overlay */}
       {isGenerating && <LoadingOverlay loadingMsg={loadingMsg} progress={progress} />}
 
@@ -123,33 +122,39 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
 
           <div className="bg-grey-900 rounded-xl border border-gray-200 overflow-hidden mb-4">
             <div className="flex items-center gap-2 m-2">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-gray-400">AI Generated Preview</span>
-          </div>
-          <div className="flex h-96">
+              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-xs text-gray-400">AI Generated Preview</span>
+            </div>
+            <div className="flex h-96">
               {/* Left Side: Main Preview */}
-              <div 
+              <div
                 ref={containerRef}
-                className="bg-gray-900 flex-1 relative overflow-hidden cursor-move"
+                className="bg-gray-400 flex-1 relative overflow-hidden cursor-move"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
-                {config.generatedImageUrl ? (
-                  <img 
-                    src={config.generatedImageUrl} 
-                    alt="Preview" 
-                    className="absolute top-1/2 left-1/2 w-full h-full object-contain transition-transform duration-100"
-                    style={{ 
-                      transform: `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${scale})`,
-                      cursor: isDragging ? 'grabbing' : scale > 1 ? 'grab' : 'default'
-                    }}
-                    draggable={false}
+                <img
+                  src={config.generatedImageUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}
+                  alt="Preview"
+                  className={`absolute top-1/2 left-1/2 w-full h-full object-contain transition-[transform,opacity] duration-300 ${!config.generatedImageUrl ? 'opacity-0' : ''}`}
+                  style={{
+                    opacity: isGenerating ? 0.3 : (!config.generatedImageUrl ? 0 : 1),
+                    transform: `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${scale})`,
+                    cursor: isDragging ? 'grabbing' : scale > 1 ? 'grab' : 'default'
+                  }}
+                  draggable={false}
+                />
+                
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-62 h-62 transition-opacity duration-300 pointer-events-none ${config.generatedImageUrl && !isGenerating ? 'opacity-0 hidden' : 'opacity-80'}`}>
+                  <DotLottieReact
+                    autoplay
+                    loop
+                    src="/loader-vehicle.lottie"
+                    className="w-full h-full"
                   />
-                ) : (
-                  <span className="text-7xl absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">🛻</span>
-                )}
+                </div>
                 <div className="absolute bottom-3 left-3 flex gap-2 flex-wrap max-w-[70%]">
                   {config.selectedAccessories.slice(0, 3).map(a => (
                     <span key={a.id} className="bg-yellow-400/90 text-gray-900 text-xs font-semibold px-2 py-1 rounded">
@@ -157,7 +162,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
                     </span>
                   ))}
                 </div>
-                
+
                 {/* Zoom Controls */}
                 <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/70 rounded-lg p-1">
                   {config.generatedImageUrl && (
@@ -252,14 +257,14 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
                     {isGenerating ? 'Regenerating...' : 'Regenerate'}
                   </button>
                 </div>
-                
+
                 <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">Generate angles</div>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { name: 'Front View', prompt: 'exterior front three-quarter view, showing the front grille and headlights clearly' },
-                    { name: 'Side View', prompt: 'exterior full side profile view, perfectly horizontal camera angle showing doors and wheels' },
-                    { name: 'Rear View', prompt: 'exterior rear three-quarter view from behind, showing taillights, trunk, and rear bumper' },
-                    { name: 'Top View', prompt: 'exterior aerial drone view from straight above the roof, showing the entire car from top-down' }
+                    { name: 'Front View', prompt: 'straight head-on front view, looking directly at the front grille and headlights, symmetrical flat front camera angle' },
+                    { name: 'Side View', prompt: 'perfect strict side profile view, 90 degree horizontal camera angle showing doors and both side wheels' },
+                    { name: 'Rear View', prompt: 'straight head-on rear view from behind, looking directly at taillights, trunk, and rear bumper, symmetrical flat rear camera angle' },
+                    { name: 'Top View', prompt: 'true overhead bird\'s-eye view, straight down from directly above the roof, showing only the roof, hood and trunk from top-down, no side details visible' }
                   ].map(view => (
                     <button
                       key={view.name}
