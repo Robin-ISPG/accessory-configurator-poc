@@ -74,14 +74,14 @@ function buildPrompt(params: GenerateImageParams): string {
     params.accessories.forEach((name, i) => {
       const ref = ordered[i];
       if (ref) {
-        // accDetail += `Reference image ${refImageNum} is the product photo for "${name}" — keep its silhouette, materials, and aspect ratio; do not stretch or squash. `;
+        accDetail += `Reference image ${refImageNum} is the product photo for "${name}" — keep its silhouette, materials, and aspect ratio; do not stretch or squash. `;
         // Prompt V2
-        accDetail += `Ref ${refImageNum} is "${name}" — install at OEM position, preserve its silhouette and materials, exact proportions, no stretching. `;
+        // accDetail += `Ref ${refImageNum} is "${name}" — install at OEM position, preserve its silhouette and materials, exact proportions, no stretching. `;
         refImageNum += 1;
       } else {
-        // accDetail += `Accessory "${name}" should be added to match the vehicle; use realistic scale and perspective. `;
+        accDetail += `Accessory "${name}" should be added to match the vehicle; use realistic scale and perspective. `;
         // Prompt V2
-        accDetail += `"${name}" — physically fitted at correct OEM position, realistic scale and perspective matched to vehicle. `;
+        // accDetail += `"${name}" — physically fitted at correct OEM position, realistic scale and perspective matched to vehicle. `;
       }
     });
 
@@ -89,52 +89,52 @@ function buildPrompt(params: GenerateImageParams): string {
     ? ` (((${params.customPrompt.trim()}))). `
     : ' ';
 
-    // return (
-    //   `Photorealistic composite of ONE vehicle. CRITICAL: Reference image 1 is the locked base vehicle photograph — preserve the exact vehicle identity, body shape, paint, glass, wheels, stance, shadows, background, and output aspect ratio; do not swap the vehicle for a different model or re-draw the whole car from imagination. ` +
-    //   (params.accessories.length > 0
-    //     ? `Add or enhance these accessories on that same photo: ${params.accessories.join(', ')}. ${accDetail}`
-    //     : '') +
-    //   `${custom}` +
-    //   `Match lighting and perspective of the base image; use contact shadows and occlusion so parts feel physically attached. Single full-frame output. Vehicle metadata (for context only): ${meta}.`
-    // );
-    // Prompt V2
     return (
-      `Hyper-realistic automotive studio photograph. ` +
-      `LOCKED BASE: Ref 1 is the base vehicle — preserve exact body shape, paint, glass, wheels, stance, background, and output aspect ratio without exception. Do not redraw or reimagine the vehicle. ` +
+      `Photorealistic composite of ONE vehicle. CRITICAL: Reference image 1 is the locked base vehicle photograph — preserve the exact vehicle identity, body shape, paint, glass, wheels, stance, shadows, background, and output aspect ratio; do not swap the vehicle for a different model or re-draw the whole car from imagination. ` +
       (params.accessories.length > 0
-        ? `ACCESSORIES: Install ${params.accessories.join(', ')} on the base vehicle. ${accDetail}`
+        ? `Add or enhance these accessories on that same photo: ${params.accessories.join(', ')}. ${accDetail}`
         : '') +
-      `Match base image lighting and perspective exactly. Contact shadows and surface occlusion on all fitted parts. ` +
       `${custom}` +
-      `Single full-frame output. Vehicle context: ${meta}.`
+      `Match lighting and perspective of the base image; use contact shadows and occlusion so parts feel physically attached. Single full-frame output. Vehicle metadata (for context only): ${meta}.`
     );
+    // Prompt V2
+    // return (
+    //   `Hyper-realistic automotive studio photograph. ` +
+    //   `LOCKED BASE: Ref 1 is the base vehicle — preserve exact body shape, paint, glass, wheels, stance, background, and output aspect ratio without exception. Do not redraw or reimagine the vehicle. ` +
+    //   (params.accessories.length > 0
+    //     ? `ACCESSORIES: Install ${params.accessories.join(', ')} on the base vehicle. ${accDetail}`
+    //     : '') +
+    //   `Match base image lighting and perspective exactly. Contact shadows and surface occlusion on all fitted parts. ` +
+    //   `${custom}` +
+    //   `Single full-frame output. Vehicle context: ${meta}.`
+    // );
   }
 
-  // let accPhrase = '';
-  // if (params.accessories.length > 0) {
-  //   const accList = params.accessories.join(' and ');
-  //   accPhrase = `featuring highly detailed, perfectly fitted, factory-compatible ((${accList})). CLEAR FOCUS on the ${accList}. `;
-  // }
-
-  // Prompt V2
   let accPhrase = '';
   if (params.accessories.length > 0) {
-    const accList = params.accessories.join(', ');
-    accPhrase = `Fitted with ((${accList})) — OEM position, exact proportions, physically attached. `;
+    const accList = params.accessories.join(' and ');
+    accPhrase = `featuring highly detailed, perfectly fitted, factory-compatible ((${accList})). CLEAR FOCUS on the ${accList}. `;
   }
 
-  // const subject = params.customPrompt
-  //   ? `(((${params.customPrompt.trim()}))) appearance, which is a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
-  //   : `a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
+  // Prompt V2
+  // let accPhrase = '';
+  // if (params.accessories.length > 0) {
+  //   const accList = params.accessories.join(', ');
+  //   accPhrase = `Fitted with ((${accList})) — OEM position, exact proportions, physically attached. `;
+  // }
+
+  const subject = params.customPrompt
+    ? `(((${params.customPrompt.trim()}))) appearance, which is a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
+    : `a pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
 // Prompt V2
 
-const subject = params.customPrompt?.trim()
-  ? `pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}, (((${params.customPrompt.trim()})))`
-  : `pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
+// const subject = params.customPrompt?.trim()
+//   ? `pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}, (((${params.customPrompt.trim()})))`
+//   : `pristine ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
 
-  // return `Hyper-realistic unedited automotive photography of a SINGLE vehicle, shot on medium format camera, razor-sharp focus. A flawless ${subject}. ${accPhrase}Authentic real-world lighting, physically accurate vehicle proportions, perfectly round wheels, flawless geometry, completely isolated on a pure, minimalist white cyclorama studio backdrop. Zero background distractions, absolute physical realism, exact custom appearance and colors, masterpiece. No fantasy, no CGI.`;
+  return `Hyper-realistic unedited automotive photography of a SINGLE vehicle, shot on medium format camera, razor-sharp focus. A flawless ${subject}. ${accPhrase}Authentic real-world lighting, physically accurate vehicle proportions, perfectly round wheels, flawless geometry, completely isolated on a pure, minimalist white cyclorama studio backdrop. Zero background distractions, absolute physical realism, exact custom appearance and colors, masterpiece. No fantasy, no CGI.`;
   // Prompt v2
-  return `Hyper-realistic automotive studio photograph of a ${subject}. ${accPhrase}Shot on white cyclorama backdrop, neutral diffused lighting. Accessories mounted with exact fitment, correct proportions, and factory-accurate placement. Vehicle unaltered. Photorealistic, medium format quality.`;
+  // return `Hyper-realistic automotive studio photograph of a ${subject}. ${accPhrase}Shot on white cyclorama backdrop, neutral diffused lighting. Accessories mounted with exact fitment, correct proportions, and factory-accurate placement. Vehicle unaltered. Photorealistic, medium format quality.`;
 }
 
 const NEGATIVE_PROMPT = 'blueprint, collage, split screen, multiple views, broken wheels, missing wheels, bent wheels, collapsed tires, deformed car body, cambered tires, floating tires, crashed, weird geometry, asymmetrical, toy car, illustration, 3d render, painting, drawing, cartoon, anime, fantasy, imagination, unreal engine, octane render, CGI, digital art, video game, poorly drawn, warped, distorted, mutant, weird colors, fake, sketch, complex background, outdoors, scenery, environment, malformed accessories, extra parts, ugly, mismatched parts, out of frame, out of focus';
