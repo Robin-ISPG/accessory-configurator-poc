@@ -56,11 +56,50 @@ async function resolveReferenceUrlsForNanobanana(urls: string[]): Promise<string
   return Promise.all(
     urls.map(async (u) => {
       const trimmed = u.trim();
-      if (!isDataUrl(trimmed)) return trimmed;
+      if (!trimmed) return trimmed;
+
+      const maybeConverted = maybeConvertCloudinaryImageUrlForNanobanana(trimmed);
+      if (!isDataUrl(trimmed)) return maybeConverted;
+
       if (!isCloudinaryConfigured()) return trimmed;
-      return uploadImageDataUrl(trimmed);
+      const uploaded = await uploadImageDataUrl(trimmed);
+      return maybeConvertCloudinaryImageUrlForNanobanana(uploaded);
     })
   );
+}
+
+function maybeConvertCloudinaryImageUrlForNanobanana(url: string): string {
+  // NanoBanana/Gemini has been failing with some formats (e.g. AVIF).
+  // Convert Cloudinary-served images to JPG via transformation.
+  try {
+    if (!/res\.cloudinary\.com/i.test(url)) return url;
+
+    // Only bother converting the formats we commonly see from uploads.
+    const extMatch = url.match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+    const ext = (extMatch?.[1] || '').toLowerCase();
+    if (ext !== 'avif' && ext !== 'webp') return url;
+
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split('/');
+    const uploadIndex = parts.findIndex((p) => p === 'upload');
+    if (uploadIndex === -1) return url;
+
+    // Inject `f_jpg` right after `/upload/` (before `v###` typically),
+    // and rewrite filename extension to `.jpg` to be extra safe.
+    if (parts[uploadIndex + 1] !== 'f_jpg') {
+      parts.splice(uploadIndex + 1, 0, 'f_jpg');
+    }
+
+    const lastIdx = parts.length - 1;
+    const last = parts[lastIdx] || '';
+    const convertedLast = last.replace(/\.(avif|webp)$/i, '.jpg');
+    parts[lastIdx] = convertedLast;
+
+    parsed.pathname = parts.join('/');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function buildPrompt(params: GenerateImageParams): string {
@@ -182,7 +221,13 @@ const stabilityProvider: ImageProvider = {
 const nanobananaProvider: ImageProvider = {
   async generate(params, { token, prompt, timestamp }) {
     // 1. Send the task generation request
-    const payload: any = {
+    const payload: {
+      prompt: string;
+      numImages: number;
+      type: string;
+      image_size: string;
+      imageUrls?: string[];
+    } = {
       prompt,
       numImages: 1,
       type: "TEXTTOIAMGE",

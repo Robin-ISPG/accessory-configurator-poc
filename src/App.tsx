@@ -46,6 +46,65 @@ interface HistoryEntry {
   totalPrice: number;
 }
 
+async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
+  // Blob URLs (e.g. `blob:` from `URL.createObjectURL`) are not stable across reloads,
+  // so we convert them to a `data:` URL before persisting.
+  const res = await fetch(blobUrl);
+  const blob = await res.blob();
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob as data URL.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function resolveImageUrlForStorage(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('data:')) return trimmed;
+
+  if (trimmed.startsWith('blob:')) {
+    try {
+      const dataUrl = await blobUrlToDataUrl(trimmed);
+      // Free the blob once we have the data URL (safe because the UI will use the returned data URL).
+      try {
+        URL.revokeObjectURL(trimmed);
+      } catch {
+        // Ignore revoke failures.
+      }
+      return dataUrl;
+    } catch (e) {
+      console.error('Failed to convert blob URL for storage', e);
+      return null;
+    }
+  }
+
+  // Allow http(s) URLs (e.g. Cloudinary) to be stored directly.
+  return trimmed;
+}
+
+function pruneHistoryEntries(entries: HistoryEntry[]): HistoryEntry[] {
+  // Keep history bounded to avoid IndexedDB quota errors.
+  // Note: we prune by JSON size, not byte size of images individually.
+  const encoder = new TextEncoder();
+  let trimmed = entries;
+  let bytes = encoder.encode(JSON.stringify(trimmed)).length;
+
+  if (bytes <= MAX_HISTORY_BYTES) return trimmed;
+
+  while (trimmed.length > 5 && bytes > TARGET_HISTORY_BYTES) {
+    trimmed = trimmed.slice(0, trimmed.length - 1);
+    bytes = encoder.encode(JSON.stringify(trimmed)).length;
+  }
+
+  return trimmed;
+}
+
 export default function App() {
   const getStoredProvider = (): ApiProvider => {
     const stored = localStorage.getItem('API_PROVIDER');
@@ -85,6 +144,17 @@ export default function App() {
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
     window.setTimeout(() => setToastMessage(null), 2200);
+  }, []);
+
+  const addLog = useCallback((type: LogEntry['type'], message: string, details?: string) => {
+    const entry: LogEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+      type,
+      message,
+      details,
+    };
+    setLogs(prev => [...prev, entry]);
   }, []);
 
   // Load persisted state on mount (IndexedDB, with one-time localStorage migration).
@@ -133,12 +203,12 @@ export default function App() {
       try {
         const persistedHistory = await getPersistedItem<HistoryEntry[]>(HISTORY_KEY);
         if (!cancelled && persistedHistory) {
-          setHistory(persistedHistory);
+          setHistory(pruneHistoryEntries(persistedHistory));
         } else {
           const legacyHistory = localStorage.getItem(HISTORY_KEY);
           if (!cancelled && legacyHistory) {
             const parsedHistory: HistoryEntry[] = JSON.parse(legacyHistory);
-            setHistory(parsedHistory);
+            setHistory(pruneHistoryEntries(parsedHistory));
             void setPersistedItem(HISTORY_KEY, parsedHistory);
           }
         }
@@ -189,41 +259,14 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showApiKeyInput]);
 
-  const addLog = useCallback((type: LogEntry['type'], message: string, details?: string) => {
-    const entry: LogEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date(),
-      type,
-      message,
-      details,
-    };
-    setLogs(prev => [...prev, entry]);
-  }, []);
-
   const clearLogs = useCallback(() => {
     setLogs([]);
     addLog('info', 'Logs cleared');
   }, [addLog]);
 
-  // Keep history size in check and surface storage pressure.
+  // Surface storage pressure. History pruning happens when loading/saving history.
   useEffect(() => {
     if (!isLoaded || history.length === 0) return;
-
-    const encoder = new TextEncoder();
-    let trimmed = history;
-    let bytes = encoder.encode(JSON.stringify(trimmed)).length;
-
-    if (bytes > MAX_HISTORY_BYTES) {
-      while (trimmed.length > 5 && bytes > TARGET_HISTORY_BYTES) {
-        trimmed = trimmed.slice(0, trimmed.length - 1);
-        bytes = encoder.encode(JSON.stringify(trimmed)).length;
-      }
-
-      if (trimmed.length !== history.length) {
-        setHistory(trimmed);
-        addLog('info', 'History auto-pruned to reduce storage usage', `Kept ${trimmed.length} entries`);
-      }
-    }
 
     void getStorageEstimate().then((estimate) => {
       if (!estimate || !estimate.quota) return;
@@ -253,15 +296,12 @@ export default function App() {
 
   const addToHistory = useCallback(async (configToSave: Configuration): Promise<string | null> => {
     if (!configToSave.vehicle) return null;
- 
-    let imageUrl = configToSave.generatedImageUrl;
-    if (imageUrl?.startsWith('blob:') || imageUrl?.startsWith('data:')) {
-      imageUrl = null;
-    }
+
+    const imageUrl = await resolveImageUrlForStorage(configToSave.generatedImageUrl);
     
     const totalPrice = configToSave.selectedAccessories.reduce((sum, a) => sum + a.price, 0);
     const entry: HistoryEntry = {
-      id: `${Date.now()}`,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       timestamp: new Date().toISOString(),
       vehicle: configToSave.vehicle,
       vehicleConfigureMode: configToSave.vehicleConfigureMode,
@@ -273,7 +313,7 @@ export default function App() {
       totalPrice,
     };
     
-    setHistory(prev => [entry, ...prev].slice(0, 20)); // Keep last 20 to reduce storage pressure
+    setHistory(prev => pruneHistoryEntries([entry, ...prev].slice(0, 20))); // Keep last 20 and prune by JSON size
     addLog('action', 'Configuration saved to history', `${configToSave.vehicle.make} ${configToSave.vehicle.model} - $${totalPrice.toLocaleString()}`);
     return imageUrl;
   }, [addLog]);
@@ -574,6 +614,7 @@ export default function App() {
               setConfig={handleSetConfig}
               onNext={() => handleSetStep(2)}
               addLog={addLog}
+              showToast={showToast}
             />
           )}
           {step === 2 && (

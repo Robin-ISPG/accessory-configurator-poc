@@ -388,7 +388,7 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
         </div>
 
         {/* Right: Preview Area */}
-        <div className="flex flex-col min-h-[500px] h-full">
+        <div className="flex flex-col h-[calc(100vh-155px)] sticky top-4 overflow-hidden">
            <PreviewCanvas 
              config={config}
              setConfig={setConfig}

@@ -110,22 +110,22 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
   }
 
   return (
-    <div className='h-[calc(100vh-155px)]'>
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Loading Overlay */}
       {isGenerating && <LoadingOverlay loadingMsg={loadingMsg} progress={progress} />}
 
       {/* Removed step header since this is now combined inside AccessoryGrid */}
 
-      <div className="w-full">
+      <div className="w-full flex flex-col flex-1 overflow-hidden">
         {/* Preview Image */}
-        <div>
+        <div className="flex flex-col flex-1 overflow-hidden">
 
-          <div className="bg-grey-900 rounded-xl border border-gray-200 overflow-hidden mb-4">
+          <div className="bg-grey-900 rounded-xl border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="flex items-center gap-2 m-2">
               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               <span className="text-xs text-gray-400">AI Generated Preview</span>
             </div>
-            <div className="flex h-96">
+            <div className="flex flex-1 min-h-0">
               {/* Left Side: Main Preview */}
               <div
                 ref={containerRef}
@@ -187,7 +187,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                     </svg>
                   </button>
-                  <span className="text-xs text-white px-2 min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
+                  <span className="text-xs text-white px-2 min-w-12 text-center">{Math.round(scale * 100)}%</span>
                   <button
                     onClick={handleZoomIn}
                     className="p-1.5 text-white hover:bg-white/20 rounded transition-colors"
@@ -229,7 +229,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
               )}
             </div>
 
-            <div className="p-4 bg-white border-t border-gray-200">
+            <div className="shrink-0 overflow-y-auto p-4 bg-white border-t border-gray-200">
               <div className="font-bold text-base mb-1">
                 {config.vehicle?.year} {config.vehicle?.make} {config.vehicle?.model} {config.vehicle?.variant}
               </div>
