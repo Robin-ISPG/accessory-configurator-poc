@@ -17,7 +17,8 @@ export interface Accessory {
   name: string;
   category: 'exterior' | 'wheels' | 'interior' | 'performance';
   price: number;
-  compatibleWith: string[]; // vehicle ids or 'all'
+  /** OR rules: `all`, a catalog `vehicle.id`, `make:Name`, or `model:Name` (see `isAccessoryCompatibleWithVehicle`) */
+  compatibleWith: string[];
   imageUrl?: string;
 }
 

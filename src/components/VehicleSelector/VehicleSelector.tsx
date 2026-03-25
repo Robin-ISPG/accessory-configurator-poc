@@ -122,6 +122,7 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog }: P
     !!make &&
     !!model &&
     !!year;
+  const canUploadBaseImage = !!make && !!model && !!year;
 
   const dataVehicleReady = mode === 'data' && !!config.vehicle;
 
@@ -237,63 +238,7 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog }: P
       )}
 
       {mode === 'images' && (
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] gap-8 items-start">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Base vehicle photo</p>
-            <p className="text-sm text-gray-400 mb-4">
-              Upload the vehicle image used as the fixed base. It will not be replaced during generation; accessories are composited on top with aspect ratios preserved.
-            </p>
-            {isCloudinaryConfigured() ? (
-              <p className="text-xs text-emerald-400/90 mb-3">
-                Cloudinary is configured — uploads go to your cloud and URLs are used for generation.
-              </p>
-            ) : (
-              <p className="text-xs text-amber-400/80 mb-3">
-                Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in <code className="text-amber-200">.env.local</code> to host images on Cloudinary (smaller API payloads).
-              </p>
-            )}
-
-            {config.vehicle?.id === USER_UPLOAD_VEHICLE_ID && config.vehicle.baseImageUrl ? (
-              <div className="rounded-xl border-2 border-yellow-500/60 bg-[#1a1a1a] overflow-hidden">
-                <div className="relative aspect-4/3 bg-black flex items-center justify-center">
-                  <img
-                    src={config.vehicle.baseImageUrl}
-                    alt="Your vehicle"
-                    className="max-w-full max-h-full w-auto h-auto object-contain"
-                  />
-                </div>
-                <div className="px-4 py-3 border-t border-[#333] flex items-center justify-between gap-3">
-                  <p className="text-xs text-gray-400">
-                    Base image is locked for this configuration. Switch tabs above to start over with a different method.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <label
-                className={`flex flex-col items-center justify-center min-h-[280px] rounded-xl border-2 border-dashed border-[#444] bg-[#1a1a1a] transition-colors px-6 ${
-                  uploadingBase ? 'opacity-60 cursor-wait' : 'hover:border-yellow-500/50 cursor-pointer'
-                }`}
-              >
-                <span className="text-4xl mb-3">{uploadingBase ? '⏳' : '📷'}</span>
-                <span className="text-sm font-semibold text-white mb-1">
-                  {uploadingBase ? 'Uploading to Cloudinary…' : 'Upload vehicle image'}
-                </span>
-                <span className="text-xs text-gray-500 text-center">PNG or JPG · one file only</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={uploadingBase}
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleBaseImageFile(file);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            )}
-          </div>
-
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] gap-8 items-start">
           <div className="space-y-4">
             <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Vehicle details</p>
             <p className="text-xs text-gray-500">Used in prompts and labels. The photo remains the source of truth for appearance.</p>
@@ -350,6 +295,72 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog }: P
                 {years.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Base vehicle photo</p>
+            <p className="text-sm text-gray-400 mb-4">
+              Upload the vehicle image used as the fixed base. It will not be replaced during generation; accessories are composited on top with aspect ratios preserved.
+            </p>
+            {isCloudinaryConfigured() ? (
+              <p className="text-xs text-emerald-400/90 mb-3">
+                Cloudinary is configured — uploads go to your cloud and URLs are used for generation.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-400/80 mb-3">
+                Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in <code className="text-amber-200">.env.local</code> to host images on Cloudinary (smaller API payloads).
+              </p>
+            )}
+
+            {config.vehicle?.id === USER_UPLOAD_VEHICLE_ID && config.vehicle.baseImageUrl ? (
+              <div className="rounded-xl border-2 border-yellow-500/60 bg-[#1a1a1a] overflow-hidden">
+                <div className="relative aspect-4/3 bg-black flex items-center justify-center">
+                  <img
+                    src={config.vehicle.baseImageUrl}
+                    alt="Your vehicle"
+                    className="max-w-full max-h-full w-auto h-auto object-contain"
+                  />
+                </div>
+                <div className="px-4 py-3 border-t border-[#333] flex items-center justify-between gap-3">
+                  <p className="text-xs text-gray-400">
+                    Base image is locked for this configuration. Switch tabs above to start over with a different method.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <label
+                className={`flex flex-col items-center justify-center min-h-[280px] rounded-xl border-2 border-dashed border-[#444] bg-[#1a1a1a] transition-colors px-6 ${
+                  uploadingBase
+                    ? 'opacity-60 cursor-wait'
+                    : canUploadBaseImage
+                      ? 'hover:border-yellow-500/50 cursor-pointer'
+                      : 'opacity-50 cursor-not-allowed'
+                }`}
+              >
+                <span className="text-4xl mb-3">{uploadingBase ? '⏳' : '📷'}</span>
+                <span className="text-sm font-semibold text-white mb-1">
+                  {uploadingBase
+                    ? 'Uploading to Cloudinary…'
+                    : canUploadBaseImage
+                      ? 'Upload vehicle image'
+                      : 'Select make, model, and year first'}
+                </span>
+                <span className="text-xs text-gray-500 text-center">
+                  {canUploadBaseImage ? 'PNG or JPG · one file only' : 'Upload is enabled after vehicle details are selected'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingBase || !canUploadBaseImage}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file && canUploadBaseImage) void handleBaseImageFile(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            )}
           </div>
         </div>
       )}

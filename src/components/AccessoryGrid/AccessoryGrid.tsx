@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Configuration, Accessory } from '../../types';
 import { accessories } from '../../data/accessories';
+import { isAccessoryCompatibleWithVehicle } from '../../utils/accessoryCompatibility';
 import AccessoryCard from './AccessoryCard';
 import { generateImage, paramsFromConfiguration } from '../../services/imageService';
 import { isCloudinaryConfigured, uploadImageFile } from '../../services/cloudinary';
@@ -32,7 +33,37 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
     configRef.current = config;
   }, [config]);
 
-  const filtered = accessories.filter(a => a.category === activeCategory);
+  const selectedIdsKey = config.selectedAccessories.map(a => a.id).sort().join(',');
+
+  useEffect(() => {
+    const prev = configRef.current;
+    if (!prev.vehicle) return;
+    const incompatible = prev.selectedAccessories.filter(
+      a => !isAccessoryCompatibleWithVehicle(a, prev.vehicle)
+    );
+    if (incompatible.length === 0) return;
+
+    const nextRefs = { ...prev.accessoryReferenceImages };
+    incompatible.forEach(a => delete nextRefs[a.id]);
+
+    setConfig({
+      ...prev,
+      selectedAccessories: prev.selectedAccessories.filter(a =>
+        isAccessoryCompatibleWithVehicle(a, prev.vehicle)
+      ),
+      accessoryReferenceImages: nextRefs,
+    });
+    addLog(
+      'info',
+      'Removed accessories not compatible with this vehicle',
+      incompatible.map(a => a.name).join(', ')
+    );
+  }, [config.vehicle?.id, selectedIdsKey, setConfig, addLog]);
+
+  const filtered = accessories.filter(
+    a =>
+      a.category === activeCategory && isAccessoryCompatibleWithVehicle(a, config.vehicle)
+  );
 
   function toggleAccessory(acc: Accessory) {
     const exists = config.selectedAccessories.find(a => a.id === acc.id);
@@ -247,23 +278,29 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  {filtered.map(acc => (
-                    <AccessoryCard
-                      key={acc.id}
-                      accessory={acc}
-                      selected={!!config.selectedAccessories.find(a => a.id === acc.id)}
-                      referenceImageUrl={config.accessoryReferenceImages[acc.id]}
-                      isUploading={uploadingAccessoryId === acc.id}
-                      onUploadReference={(file) => {
-                        void uploadRefFile(file, 'accessory', acc.id);
-                      }}
-                      onRemoveReference={() => {
-                        setAccessoryReferenceImage(acc.id, null);
-                        addLog('action', `Accessory image removed: ${acc.name}`);
-                      }}
-                      onToggle={() => toggleAccessory(acc)}
-                    />
-                  ))}
+                  {filtered.length === 0 ? (
+                    <p className="col-span-2 text-xs text-gray-500 py-3">
+                      No accessories in this category for your vehicle.
+                    </p>
+                  ) : (
+                    filtered.map(acc => (
+                      <AccessoryCard
+                        key={acc.id}
+                        accessory={acc}
+                        selected={!!config.selectedAccessories.find(a => a.id === acc.id)}
+                        referenceImageUrl={config.accessoryReferenceImages[acc.id]}
+                        isUploading={uploadingAccessoryId === acc.id}
+                        onUploadReference={(file) => {
+                          void uploadRefFile(file, 'accessory', acc.id);
+                        }}
+                        onRemoveReference={() => {
+                          setAccessoryReferenceImage(acc.id, null);
+                          addLog('action', `Accessory image removed: ${acc.name}`);
+                        }}
+                        onToggle={() => toggleAccessory(acc)}
+                      />
+                    ))
+                  )}
                 </div>
 
                 {/* Per-Category Reference Image Upload (data-driven flow only) */}
