@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Configuration, Vehicle, VehicleConfigureMode } from '../../types';
 import { makes, modelsByMake, years, vehicles } from '../../data/vehicles';
-import {
-  cleanupVehiclesFolderImages,
-  isCloudinaryConfigured,
-  uploadImageFile,
-} from '../../services/cloudinary';
+import { isCloudinaryConfigured, uploadImageFile } from '../../services/cloudinary';
 
 import type { LogEntry } from '../LogBox/LogBox';
 
@@ -16,10 +12,9 @@ interface Props {
   setConfig: (c: Configuration) => void;
   onNext: () => void;
   addLog: (type: LogEntry['type'], message: string, details?: string) => void;
-  showToast: (message: string) => void;
 }
 
-export default function VehicleSelector({ config, setConfig, onNext, addLog, showToast }: Props) {
+export default function VehicleSelector({ config, setConfig, onNext, addLog }: Props) {
   const mode = config.vehicleConfigureMode;
   const [make, setMake] = useState(config.vehicle?.make || '');
   const [model, setModel] = useState(config.vehicle?.model || '');
@@ -109,20 +104,19 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog, sho
 
     // If switching from image-mode back to data-mode, clear everything Cloudinary uploaded
     // into the `Vehicles/` folder. Fire-and-forget (do not block the UI).
-    if (next === 'data' && mode === 'images') {
-      showToast('Cleaning Cloudinary Vehicles images…');
-      addLog('action', 'Starting Cloudinary cleanup for Vehicles/ folder');
-      const cleanup = cleanupVehiclesFolderImages()
-        .catch((e: unknown) => {
-          console.error(e);
-          addLog(
-            'error',
-            'Cloudinary cleanup failed',
-            e instanceof Error ? e.message : 'Unknown error'
-          );
-        });
-      void cleanup;
-    }
+    // Disabled for now (browser Admin API DELETE hits CORS; use a serverless proxy when re-enabling).
+    // if (next === 'data' && mode === 'images') {
+    //   showToast('Cleaning Cloudinary Vehicles images…');
+    //   addLog('action', 'Starting Cloudinary cleanup for Vehicles/ folder');
+    //   void cleanupVehiclesFolderImages().catch((e: unknown) => {
+    //     console.error(e);
+    //     addLog(
+    //       'error',
+    //       'Cloudinary cleanup failed',
+    //       e instanceof Error ? e.message : 'Unknown error'
+    //     );
+    //   });
+    // }
 
     addLog('action', `Vehicle step: switched to ${next === 'data' ? 'configure by data' : 'configure with images'}`);
     setConfig({

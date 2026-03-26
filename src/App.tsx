@@ -614,7 +614,6 @@ export default function App() {
               setConfig={handleSetConfig}
               onNext={() => handleSetStep(2)}
               addLog={addLog}
-              showToast={showToast}
             />
           )}
           {step === 2 && (
