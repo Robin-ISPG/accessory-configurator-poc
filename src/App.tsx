@@ -12,6 +12,7 @@ import {
   removePersistedItem,
   getStorageEstimate,
 } from './services/persistenceService';
+import { fetchNanoBananaCredits } from './services/creditsService';
 
 const STORAGE_KEY = 'accessory-configurator-data';
 const HISTORY_KEY = 'accessory-configurator-history';
@@ -122,6 +123,9 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showApiKeyValue, setShowApiKeyValue] = useState(false);
   const [apiProvider, setApiProvider] = useState<ApiProvider>(() => getStoredProvider());
+  const [credits, setCredits] = useState<number | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [creditsError, setCreditsError] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState({
     stability: localStorage.getItem('STABILITY_API_KEY') || '',
     nanobanana: localStorage.getItem('NANOBANANA_API_KEY') || '',
@@ -133,6 +137,21 @@ export default function App() {
     setApiProvider(provider);
     localStorage.setItem('API_PROVIDER', provider);
   };
+
+  const refreshCredits = useCallback(async () => {
+    setCreditsError(null);
+    setCreditsLoading(true);
+    try {
+      const value = await fetchNanoBananaCredits(apiProvider);
+      setCredits(value);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to fetch credits';
+      setCredits(null);
+      setCreditsError(msg);
+    } finally {
+      setCreditsLoading(false);
+    }
+  }, [apiProvider]);
 
   const handleApiKeyChange = (provider: ApiProvider, val: string) => {
     setApiKeys(prev => ({ ...prev, [provider]: val }));
@@ -156,6 +175,12 @@ export default function App() {
     };
     setLogs(prev => [...prev, entry]);
   }, []);
+
+  // Fetch remaining credits on load/provider change.
+  useEffect(() => {
+    if (!isLoaded) return;
+    void refreshCredits();
+  }, [isLoaded, refreshCredits]);
 
   // Load persisted state on mount (IndexedDB, with one-time localStorage migration).
   useEffect(() => {
@@ -285,12 +310,21 @@ export default function App() {
     const trimmed = value.trim();
     handleApiKeyChange(provider, trimmed);
 
-    if (!trimmed) return;
+    // Keep credits in sync when NanoBanana key is added/changed/removed.
+    if (provider === 'nanobanana' && apiProvider === 'nanobanana') {
+      void refreshCredits();
+    }
+
+    if (!trimmed) {
+      addLog('action', `${provider === 'stability' ? 'Stability AI' : 'NanoBanana API'} key removed`);
+      return;
+    }
 
     setShowApiKeyInput(false);
     addLog('action', `${provider === 'stability' ? 'Stability AI' : 'NanoBanana API'} key saved`);
     showToast('API key added');
-  }, [addLog, showToast]);
+
+  }, [addLog, showToast, refreshCredits, apiProvider]);
 
 
 
@@ -425,6 +459,17 @@ export default function App() {
           <span className="text-2xl font-bold text-blue-400 font-mono">ISPG</span>
         </a>
         <div className="flex items-center gap-3">
+          {apiProvider === 'nanobanana' && (
+            <div className="text-xs text-gray-400 whitespace-nowrap">
+              {creditsLoading
+                ? 'Credits: loading…'
+                : credits !== null
+                  ? `Credits: ${credits.toLocaleString()}`
+                  : creditsError
+                    ? 'Credits: unavailable'
+                    : 'Credits: —'}
+            </div>
+          )}
           <div className="relative">
             <button
               ref={apiButtonRef}
@@ -625,6 +670,7 @@ export default function App() {
               isGenerating={isGenerating}
               setIsGenerating={handleSetIsGenerating}
               addLog={addLog}
+              onGenerationComplete={refreshCredits}
             />
           )}
         </div>

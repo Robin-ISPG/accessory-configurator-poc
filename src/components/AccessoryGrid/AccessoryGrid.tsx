@@ -20,9 +20,18 @@ interface Props {
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
   addLog: (type: LogEntry['type'], message: string, details?: string) => void;
+  onGenerationComplete?: () => void | Promise<void>;
 }
 
-export default function AccessoryGrid({ config, setConfig, onBack, isGenerating, setIsGenerating, addLog }: Props) {
+export default function AccessoryGrid({
+  config,
+  setConfig,
+  onBack,
+  isGenerating,
+  setIsGenerating,
+  addLog,
+  onGenerationComplete,
+}: Props) {
   const [activeCategory, setActiveCategory] = useState<Category>('exterior');
   const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
   const [progress, setProgress] = useState(0);
@@ -187,6 +196,9 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
       clearInterval(interval);
       setProgress(100);
       setConfig({ ...config, generatedImageUrl: result.imageUrl });
+
+      // Refresh remaining credits after a successful generation.
+      if (onGenerationComplete) void onGenerationComplete();
       
       // Log API call details
       addLog('api', `${result.apiCallDetails.providerName} API Call - ${result.apiCallDetails.method}`, 
