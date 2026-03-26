@@ -410,11 +410,11 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog, sho
               <p className="text-[12px] text-emerald-400/90 my-3">
                 (Uploads go to our cloud and URLs are used for generation. We don't store any images permanently.)
               </p>
-            ) : (
+            ) : import.meta.env.DEV ? (
               <p className="text-xs text-amber-400/80 mb-3">
-                Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in <code className="text-amber-200">.env.local</code> to host images on Cloudinary (smaller API payloads).
+                Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to host images on Cloudinary.
               </p>
-            )}
+            ) : null}
 
             {config.vehicle?.id === USER_UPLOAD_VEHICLE_ID && config.vehicle.baseImageUrl ? (
               <div className="w-full rounded-xl border-2 border-yellow-500/60 bg-[#1a1a1a] overflow-hidden mt-12">
