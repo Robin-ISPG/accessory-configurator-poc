@@ -4,6 +4,7 @@ import { accessories } from '../../data/accessories';
 import { isAccessoryCompatibleWithVehicle } from '../../utils/accessoryCompatibility';
 import AccessoryCard from './AccessoryCard';
 import { generateImage, paramsFromConfiguration } from '../../services/imageService';
+import { startGenerationProgress } from '../../utils/generationProgress';
 import { isCloudinaryConfigured, uploadImageFile } from '../../services/cloudinary';
 import LoadingOverlay from '../ui/LoadingOverlay';
 
@@ -169,22 +170,18 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
   async function handleGenerate() {
     if (!config.vehicle || config.selectedAccessories.length === 0) return;
     setIsGenerating(true);
-
-    // Progress simulation
-    const msgs = ['Preparing your vehicle...', 'Adding accessories...', 'Applying lighting...', 'Finalising preview...'];
-    let p = 0; let mi = 0;
-    const interval = setInterval(() => {
-      p += 2;
-      setProgress(p);
-      if (p % 25 === 0 && mi < msgs.length - 1) { mi++; setLoadingMsg(msgs[mi]); }
-      if (p >= 98) clearInterval(interval);
-    }, 100);
+    const stopProgress = startGenerationProgress(setProgress, setLoadingMsg);
 
     try {
       const genParams = paramsFromConfiguration(config);
-      if (!genParams) return;
+      if (!genParams) {
+        stopProgress();
+        setProgress(0);
+        setIsGenerating(false);
+        return;
+      }
       const result = await generateImage(genParams);
-      clearInterval(interval);
+      stopProgress();
       setProgress(100);
       setConfig({ ...config, generatedImageUrl: result.imageUrl });
       
@@ -203,7 +200,7 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
       setTimeout(() => { setIsGenerating(false); setProgress(0); }, 400);
     } catch (err: unknown) {
       console.error('Failed to generate preview:', err);
-      clearInterval(interval);
+      stopProgress();
       setProgress(0);
       setIsGenerating(false);
       const providerKey = localStorage.getItem('API_PROVIDER');

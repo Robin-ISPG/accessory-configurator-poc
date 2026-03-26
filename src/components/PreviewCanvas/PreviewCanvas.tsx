@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import type { Configuration } from '../../types';
 import { generateImage, paramsFromConfiguration } from '../../services/imageService';
+import { startGenerationProgress } from '../../utils/generationProgress';
 import LoadingOverlay from '../ui/LoadingOverlay';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 
@@ -65,22 +66,21 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
       addLog('action', 'Regenerate clicked');
     }
     setIsGenerating(true);
-    const msgs = ['Preparing your vehicle...', 'Adding accessories...', 'Applying lighting...', 'Finalising preview...'];
-    let p = 0; let mi = 0;
-    const interval = setInterval(() => {
-      p += 2; setProgress(p);
-      if (p % 25 === 0 && mi < msgs.length - 1) { mi++; setLoadingMsg(msgs[mi]); }
-      if (p >= 98) clearInterval(interval);
-    }, 100);
+    const stopProgress = startGenerationProgress(setProgress, setLoadingMsg);
 
     const strictRetention = "CRITICAL: strictly maintain the exact original vehicle design, styling, color, and make/model, do not alter the vehicle, ONLY change camera angle";
     const finalPrompt = overrideViewPrompt ? (prompt ? `${prompt}, ${overrideViewPrompt}` : `${overrideViewPrompt}, ${strictRetention}`) : prompt;
 
     try {
       const genParams = paramsFromConfiguration(config, finalPrompt);
-      if (!genParams) return;
+      if (!genParams) {
+        stopProgress();
+        setProgress(0);
+        setIsGenerating(false);
+        return;
+      }
       const result = await generateImage(genParams);
-      clearInterval(interval);
+      stopProgress();
       setProgress(100);
 
       const newImages = [...(config.generatedImages || [])];
@@ -103,7 +103,7 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
       const providerKey = localStorage.getItem('API_PROVIDER');
       const activeProvider = providerKey === 'stability' ? 'Stability AI' : 'NanoBanana API';
       addLog('error', `${activeProvider} API generation failed`, error instanceof Error ? error.message : 'Unknown error occurred');
-      clearInterval(interval);
+      stopProgress();
       setIsGenerating(false);
       setProgress(0);
     }
