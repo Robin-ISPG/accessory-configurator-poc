@@ -186,6 +186,11 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog, sho
           ...config,
           vehicleConfigureMode: 'images',
           vehicle: { ...vehicleBase, baseImageUrl: secureUrl },
+          // New base photo invalidates prior refs and generated output (avoid stale previews after replace).
+          categoryReferenceImages: {},
+          accessoryReferenceImages: {},
+          generatedImageUrl: null,
+          generatedImages: [],
         });
         addLog('action', 'Base vehicle image uploaded to Cloudinary', secureUrl);
         didUpload = true;
@@ -196,6 +201,10 @@ export default function VehicleSelector({ config, setConfig, onNext, addLog, sho
           ...config,
           vehicleConfigureMode: 'images',
           vehicle: { ...vehicleBase, baseImageUrl: dataUrl },
+          categoryReferenceImages: {},
+          accessoryReferenceImages: {},
+          generatedImageUrl: null,
+          generatedImages: [],
         });
         addLog('action', 'Base vehicle image stored locally (data URL)', file.name);
         didUpload = true;

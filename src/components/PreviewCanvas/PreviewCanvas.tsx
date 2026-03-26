@@ -245,6 +245,12 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
                     type="text"
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (!config.generatedImageUrl || isGenerating) return;
+                      void handleRegenerate();
+                    }}
                     placeholder="e.g. matte black finish, night scene..."
                     disabled={!config.generatedImageUrl || isGenerating}
                     className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:opacity-70 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
