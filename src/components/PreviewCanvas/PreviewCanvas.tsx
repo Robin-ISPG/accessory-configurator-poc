@@ -116,6 +116,18 @@ export default function PreviewCanvas({
     }
   }
 
+  const baseVehiclePhoto =
+    config.vehicleConfigureMode === 'images' && config.vehicle?.baseImageUrl
+      ? config.vehicle.baseImageUrl
+      : '';
+  const previewImageUrl = config.generatedImageUrl || baseVehiclePhoto || null;
+  const hasPreviewImage = Boolean(previewImageUrl);
+  const previewStatusLabel = config.generatedImageUrl
+    ? 'AI Generated Preview'
+    : baseVehiclePhoto
+      ? 'Uploaded vehicle image'
+      : 'AI Generated Preview';
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="w-full flex flex-col flex-1 overflow-hidden">
@@ -125,7 +137,7 @@ export default function PreviewCanvas({
           <div className="bg-grey-900 rounded-xl border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="flex items-center gap-2 m-2">
               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs text-gray-400">AI Generated Preview</span>
+              <span className="text-xs text-gray-400">{previewStatusLabel}</span>
             </div>
             <div className="flex flex-1 min-h-0">
               {/* Left Side: Main Preview */}
@@ -138,18 +150,22 @@ export default function PreviewCanvas({
                 onMouseLeave={handleMouseUp}
               >
                 <img
-                  src={config.generatedImageUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}
+                  src={previewImageUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}
                   alt="Preview"
-                  className={`absolute top-1/2 left-1/2 w-full h-full object-contain transition-[transform,opacity] duration-300 ${!config.generatedImageUrl ? 'opacity-0' : ''}`}
+                  className={`absolute top-1/2 left-1/2 w-full h-full object-contain transition-[transform,opacity] duration-300 ${!hasPreviewImage ? 'opacity-0' : ''}`}
                   style={{
-                    opacity: isGenerating ? 0.3 : (!config.generatedImageUrl ? 0 : 1),
+                    opacity: isGenerating ? 0.3 : hasPreviewImage ? 1 : 0,
                     transform: `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${scale})`,
                     cursor: isDragging ? 'grabbing' : scale > 1 ? 'grab' : 'default'
                   }}
                   draggable={false}
                 />
-                
-                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-62 h-62 transition-opacity duration-300 pointer-events-none ${config.generatedImageUrl && !isGenerating ? 'opacity-0 hidden' : 'opacity-80'}`}>
+
+                <div
+                  className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-62 h-62 transition-opacity duration-300 pointer-events-none ${
+                    hasPreviewImage && !isGenerating ? 'opacity-0 hidden' : 'opacity-80'
+                  }`}
+                >
                   <DotLottieReact
                     autoplay
                     loop
@@ -167,10 +183,12 @@ export default function PreviewCanvas({
 
                 {/* Zoom Controls */}
                 <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/70 rounded-lg p-1">
-                  {config.generatedImageUrl && (
+                  {previewImageUrl && (
                     <a
-                      href={config.generatedImageUrl}
-                      download={`${config.vehicle?.make}-${config.vehicle?.model}-accessories.png`}
+                      href={previewImageUrl}
+                      download={`${config.vehicle?.make}-${config.vehicle?.model}-${
+                        config.generatedImageUrl ? 'accessories-preview' : 'vehicle-photo'
+                      }.png`}
                       className="p-1.5 text-white hover:bg-white/20 rounded transition-colors mr-1 border-r border-white/30"
                       title="Download image"
                       onClick={() => addLog('action', 'Image downloaded', `${config.vehicle?.make} ${config.vehicle?.model}`)}
