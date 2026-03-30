@@ -386,11 +386,13 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
 
         {/* Right: Preview Area */}
         <div className="flex flex-col h-[calc(100vh-155px)] sticky top-4 overflow-hidden">
-           <PreviewCanvas 
+           <PreviewCanvas
              config={config}
              setConfig={setConfig}
              isGenerating={isGenerating}
              setIsGenerating={setIsGenerating}
+             setProgress={setProgress}
+             setLoadingMsg={setLoadingMsg}
              addLog={addLog}
            />
         </div>

@@ -1,8 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { Configuration } from '../../types';
 import { generateImage, paramsFromConfiguration } from '../../services/imageService';
 import { startGenerationProgress } from '../../utils/generationProgress';
-import LoadingOverlay from '../ui/LoadingOverlay';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 
 import type { LogEntry } from '../LogBox/LogBox';
@@ -12,13 +11,21 @@ interface Props {
   setConfig: (c: Configuration) => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
+  setProgress: Dispatch<SetStateAction<number>>;
+  setLoadingMsg: (s: string) => void;
   addLog: (type: LogEntry['type'], message: string, details?: string) => void;
 }
 
-export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGenerating, addLog }: Props) {
+export default function PreviewCanvas({
+  config,
+  setConfig,
+  isGenerating,
+  setIsGenerating,
+  setProgress,
+  setLoadingMsg,
+  addLog,
+}: Props) {
   const [prompt, setPrompt] = useState(config.customPrompt);
-  const [loadingMsg, setLoadingMsg] = useState('Preparing your vehicle...');
-  const [progress, setProgress] = useState(0);
 
   // Zoom and pan state
   const [scale, setScale] = useState(1);
@@ -111,11 +118,6 @@ export default function PreviewCanvas({ config, setConfig, isGenerating, setIsGe
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Loading Overlay */}
-      {isGenerating && <LoadingOverlay loadingMsg={loadingMsg} progress={progress} />}
-
-      {/* Removed step header since this is now combined inside AccessoryGrid */}
-
       <div className="w-full flex flex-col flex-1 overflow-hidden">
         {/* Preview Image */}
         <div className="flex flex-col flex-1 overflow-hidden">
