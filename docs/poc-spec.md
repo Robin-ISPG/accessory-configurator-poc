@@ -163,65 +163,14 @@ export const accessories: Accessory[] = [
 
 ## Image Service — `src/services/imageService.ts`
 
-```ts
-import axios from 'axios';
+Providers (user-selectable via **API Key** in the nav):
 
-const STABILITY_API_KEY = import.meta.env.VITE_STABILITY_API_KEY;
+1. **NanoBanana API** (`nanobananaapi.ai`) — async generate + poll; supports multiple reference images (base vehicle + accessories) when configured.
+2. **Vertex AI (Imagen)** — REST `predict` to regional `aiplatform.googleapis.com`: text-to-image uses `imagen-3.0-fast-generate-001` by default (override `VITE_VERTEX_TEXT_MODEL`); when a **base vehicle image** is present, uses `imagen-3.0-capability-001` inpaint insertion with an automatic foreground mask. Requires GCP project ID, region, and a short-lived OAuth access token (`gcloud auth print-access-token`). One image per request (`sampleCount: 1`) to keep usage lean.
 
-export interface GenerateImageParams {
-  vehicleMake: string;
-  vehicleModel: string;
-  vehicleYear: string;
-  accessories: string[];
-  customPrompt?: string;
-}
+If no credentials are set for the active provider, `generateImage` waits ~3s and returns a placeholder image so the UI still works.
 
-export interface GenerateImageResult {
-  imageUrl: string;
-  prompt: string;
-}
-
-function buildPrompt(params: GenerateImageParams): string {
-  const accList = params.accessories.join(', ');
-  const custom = params.customPrompt ? `. ${params.customPrompt}` : '';
-  return `A professional automotive photograph of a ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel} with ${accList} installed${custom}. Studio lighting, high quality, photorealistic, 4K resolution.`;
-}
-
-export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
-  const prompt = buildPrompt(params);
-
-  // For POC: if no API key, return a placeholder after a fake delay
-  if (!STABILITY_API_KEY) {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    return {
-      imageUrl: `https://placehold.co/800x500/1a1a1a/f0a500?text=${encodeURIComponent(params.vehicleModel)}`,
-      prompt,
-    };
-  }
-
-  // Real Stability AI img2img call
-  const formData = new FormData();
-  formData.append('prompt', prompt);
-  formData.append('output_format', 'jpeg');
-
-  const response = await axios.post(
-    'https://api.stability.ai/v2beta/stable-image/generate/core',
-    formData,
-    {
-      headers: {
-        Authorization: `Bearer ${STABILITY_API_KEY}`,
-        Accept: 'image/*',
-      },
-      responseType: 'blob',
-    }
-  );
-
-  const imageUrl = URL.createObjectURL(response.data);
-  return { imageUrl, prompt };
-}
-```
-
-Add `VITE_STABILITY_API_KEY=your_key_here` to `.env` file at project root.
+Optional env: `VITE_NANOBANANA_API_KEY`, `VITE_VERTEX_PROJECT_ID`, `VITE_VERTEX_LOCATION`, `VITE_VERTEX_ACCESS_TOKEN`, `VITE_VERTEX_TEXT_MODEL`, `VITE_VERTEX_EDIT_MODEL` (see `.env.example`).
 
 ---
 
@@ -840,13 +789,7 @@ export default function PreviewCanvas({ config, setConfig, onBack, isGenerating,
 
 ## Environment Setup
 
-Create `.env` in project root:
-```
-VITE_STABILITY_API_KEY=your_key_here
-```
-
-Get your API key at: https://platform.stability.ai/account/keys
-New accounts get 25 free credits (~3 image generations for testing).
+Create `.env` or `.env.local` in project root (see `.env.example`). Keys can also be stored only in the browser via the **API Key** panel.
 
 ---
 
@@ -864,7 +807,7 @@ npm run dev
 |---|---|
 | Vehicle data | Mock JSON — no API |
 | Accessory data | Mock JSON — no API |
-| Image generation | Real Stability AI call (falls back to placeholder if no key) |
+| Image generation | NanoBanana API and/or Vertex AI Imagen (falls back to placeholder if no credentials) |
 | Save configuration | Alert only — Phase 2 |
 | Share link | Alert only — Phase 2 |
 | Authentication | Not implemented — Phase 2 |
@@ -878,5 +821,5 @@ npm run dev
 - No any types
 - Tailwind only for styling — no CSS files needed beyond index.css
 - The loading overlay is duplicated in AccessoryGrid and PreviewCanvas — extract to `LoadingOverlay.tsx` component if preferred
-- The `generateImage` function falls back to a placeholder image automatically if `VITE_STABILITY_API_KEY` is missing — so the app works without an API key
+- The `generateImage` function falls back to a placeholder image automatically if the active provider has no credentials — so the app works without API keys
 - Save and Share buttons show alerts — wire to real APIs in Phase 2

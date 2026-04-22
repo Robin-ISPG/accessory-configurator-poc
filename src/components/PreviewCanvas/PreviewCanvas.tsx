@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback, type Dispatch, type SetStateAction } from 'react';
+import { useState, useRef, useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 import type { Configuration } from '../../types';
 import { generateImage, paramsFromConfiguration } from '../../services/imageService';
 import { startGenerationProgress } from '../../utils/generationProgress';
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
+import { Car, Loader2 } from 'lucide-react';
 
 import type { LogEntry } from '../LogBox/LogBox';
+import { apiProviderLabel } from '../../utils/apiProvider';
 
 interface Props {
   config: Configuration;
@@ -26,6 +27,10 @@ export default function PreviewCanvas({
   addLog,
 }: Props) {
   const [prompt, setPrompt] = useState(config.customPrompt);
+
+  useEffect(() => {
+    setPrompt(config.customPrompt);
+  }, [config.customPrompt]);
 
   // Zoom and pan state
   const [scale, setScale] = useState(1);
@@ -75,11 +80,37 @@ export default function PreviewCanvas({
     setIsGenerating(true);
     const stopProgress = startGenerationProgress(setProgress, setLoadingMsg);
 
-    const strictRetention = "CRITICAL: strictly maintain the exact original vehicle design, styling, color, and make/model, do not alter the vehicle, ONLY change camera angle";
-    const finalPrompt = overrideViewPrompt ? (prompt ? `${prompt}, ${overrideViewPrompt}` : `${overrideViewPrompt}, ${strictRetention}`) : prompt;
+    const strictRetention =
+      'CRITICAL: same vehicle identity and accessories as the reference — ONLY change camera angle and framing; do not invent a different car or scene.';
+
+    const clickedAngle = Boolean(viewName && overrideViewPrompt);
+    const storedAngle =
+      !clickedAngle &&
+      config.lastReframeViewName?.trim() &&
+      config.lastReframeViewPrompt?.trim()
+        ? {
+            name: config.lastReframeViewName.trim(),
+            prompt: config.lastReframeViewPrompt.trim(),
+          }
+        : null;
+
+    const effectiveViewPrompt = overrideViewPrompt ?? storedAngle?.prompt;
+    const effectiveViewName = viewName ?? storedAngle?.name;
+    const useAngleReframe = Boolean(
+      effectiveViewPrompt && effectiveViewName && (clickedAngle || storedAngle)
+    );
+
+    const finalPrompt =
+      useAngleReframe && effectiveViewPrompt
+        ? prompt.trim()
+          ? `${prompt.trim()}. ${effectiveViewPrompt}. ${strictRetention}`
+          : `${effectiveViewPrompt} ${strictRetention}`
+        : prompt;
 
     try {
-      const genParams = paramsFromConfiguration(config, finalPrompt);
+      const genParams = paramsFromConfiguration(config, finalPrompt, {
+        reframeOnly: Boolean(useAngleReframe && effectiveViewPrompt && effectiveViewName),
+      });
       if (!genParams) {
         stopProgress();
         setProgress(0);
@@ -94,13 +125,20 @@ export default function PreviewCanvas({
       if (newImages.length === 0 && config.generatedImageUrl) {
         newImages.push({ url: config.generatedImageUrl, view: 'Initial', prompt: config.customPrompt });
       }
-      newImages.push({ url: result.imageUrl, view: viewName || overrideViewPrompt || 'Custom', prompt: finalPrompt });
+      const thumbView =
+        useAngleReframe && effectiveViewName
+          ? effectiveViewName
+          : viewName || overrideViewPrompt || 'Custom';
+      newImages.push({ url: result.imageUrl, view: thumbView, prompt: finalPrompt });
 
       setConfig({
         ...config,
         generatedImageUrl: result.imageUrl,
         customPrompt: prompt,
-        generatedImages: newImages
+        generatedImages: newImages,
+        ...(clickedAngle
+          ? { lastReframeViewName: viewName!, lastReframeViewPrompt: overrideViewPrompt! }
+          : {}),
       });
       // Reset zoom on new image
       handleReset();
@@ -108,7 +146,7 @@ export default function PreviewCanvas({
     } catch (error) {
       console.error(error);
       const providerKey = localStorage.getItem('API_PROVIDER');
-      const activeProvider = providerKey === 'stability' ? 'Stability AI' : 'NanoBanana API';
+      const activeProvider = apiProviderLabel(providerKey);
       addLog('error', `${activeProvider} API generation failed`, error instanceof Error ? error.message : 'Unknown error occurred');
       stopProgress();
       setIsGenerating(false);
@@ -116,16 +154,59 @@ export default function PreviewCanvas({
     }
   }
 
-  const baseVehiclePhoto =
-    config.vehicleConfigureMode === 'images' && config.vehicle?.baseImageUrl
-      ? config.vehicle.baseImageUrl
-      : '';
+  /** Catalog (data mode) or user upload (images mode) — both use `vehicle.baseImageUrl`. */
+  const baseVehiclePhoto = config.vehicle?.baseImageUrl?.trim() || '';
   const previewImageUrl = config.generatedImageUrl || baseVehiclePhoto || null;
+
+  const selectedHasInterior = config.selectedAccessories.some((a) => a.category === 'interior');
+
+  const interiorAnglePresets: { name: string; prompt: string }[] = [
+    {
+      name: 'Dash & cabin wide',
+      prompt:
+        'Interior wide shot from slightly behind front seats: full dashboard, steering wheel, instrument cluster, infotainment, center console and both front seats visible; eye-level horizon; daylight through windshield; PRIMARY focus sharp on installed interior accessories (seat covers, mats, LEDs, dash cam, etc.).',
+    },
+    {
+      name: 'Driver focus',
+      prompt:
+        'Interior from driver doorway or over left shoulder: driver seat, bolster, floor mat zone, lower dash and sill — tight depth of field so selected interior accessories read clearly; natural cabin shadows.',
+    },
+    {
+      name: 'Passenger floor & console',
+      prompt:
+        'Low angle inside cabin targeting front passenger footwell and center tunnel: emphasize floor mats, console trim, wires/routing for electronics; realistic carpet pile and shadows.',
+    },
+  ];
+
+  const exteriorAnglePresets: { name: string; prompt: string }[] = [
+    {
+      name: 'Front View',
+      prompt:
+        'Straight-on front catalog shot: camera centered on grille at vehicle height, symmetrical, full front fascia visible.',
+    },
+    {
+      name: 'Side View',
+      prompt:
+        'Perfect 90° driver-side profile: camera perpendicular to rocker, full side silhouette, both wheels visible.',
+    },
+    {
+      name: 'Rear View',
+      prompt:
+        'Straight-on rear catalog shot: centered on tailgate/bumper at vehicle height, symmetrical, full rear visible.',
+    },
+    {
+      name: 'Top View',
+      prompt:
+        'Drone / plan view: camera directly above the vehicle center, lens aimed straight down (90° to the ground), high enough to see the full roof, hood, and cargo area as a top-down map — tires read as ovals; pavement visible around the body. NOT isometric, NOT 3/4, NOT interior, NOT dashboard view.',
+    },
+  ];
   const hasPreviewImage = Boolean(previewImageUrl);
   const previewStatusLabel = config.generatedImageUrl
     ? 'AI Generated Preview'
     : baseVehiclePhoto
-      ? 'Uploaded vehicle image'
+      ? config.vehicleConfigureMode === 'images'
+        ? 'Uploaded vehicle image'
+        : 'Selected vehicle'
       : 'AI Generated Preview';
 
   return (
@@ -162,16 +243,15 @@ export default function PreviewCanvas({
                 />
 
                 <div
-                  className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-62 h-62 transition-opacity duration-300 pointer-events-none ${
-                    hasPreviewImage && !isGenerating ? 'opacity-0 hidden' : 'opacity-80'
+                  className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 pointer-events-none ${
+                    hasPreviewImage && !isGenerating ? 'opacity-0 hidden' : 'opacity-90'
                   }`}
                 >
-                  <DotLottieReact
-                    autoplay
-                    loop
-                    src="/loader-vehicle.lottie"
-                    className="w-full h-full"
-                  />
+                  {isGenerating ? (
+                    <Loader2 className="h-14 w-14 text-yellow-400 animate-spin" strokeWidth={2} aria-hidden />
+                  ) : (
+                    <Car className="h-14 w-14 text-gray-600/70" strokeWidth={1.5} aria-hidden />
+                  )}
                 </div>
                 <div className="absolute bottom-3 left-3 flex gap-2 flex-wrap max-w-[70%]">
                   {config.selectedAccessories.slice(0, 3).map(a => (
@@ -273,7 +353,7 @@ export default function PreviewCanvas({
                     }}
                     placeholder="e.g. matte black finish, night scene..."
                     disabled={!config.generatedImageUrl || isGenerating}
-                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:opacity-70 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:opacity-70 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-gray-900"
                   />
                   <button
                     onClick={() => handleRegenerate()}
@@ -284,24 +364,61 @@ export default function PreviewCanvas({
                   </button>
                 </div>
 
-                <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">Generate angles</div>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { name: 'Front View', prompt: 'straight head-on front view, looking directly at the front grille and headlights, symmetrical flat front camera angle' },
-                    { name: 'Side View', prompt: 'perfect strict side profile view, 90 degree horizontal camera angle showing doors and both side wheels' },
-                    { name: 'Rear View', prompt: 'straight head-on rear view from behind, looking directly at taillights, trunk, and rear bumper, symmetrical flat rear camera angle' },
-                    { name: 'Top View', prompt: 'true overhead bird\'s-eye view, straight down from directly above the roof, showing only the roof, hood and trunk from top-down, no side details visible' }
-                  ].map(view => (
-                    <button
-                      key={view.name}
-                      onClick={() => handleRegenerate(view.prompt, view.name)}
-                      disabled={!config.generatedImageUrl || isGenerating}
-                      className="border border-gray-300 cursor-pointer text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
-                    >
-                      + {view.name}
-                    </button>
-                  ))}
-                </div>
+                {selectedHasInterior ? (
+                  <>
+                    <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">
+                      Interior views
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {interiorAnglePresets.map((view) => (
+                        <button
+                          key={view.name}
+                          type="button"
+                          onClick={() => handleRegenerate(view.prompt, view.name)}
+                          disabled={!config.generatedImageUrl || isGenerating}
+                          className="border border-gray-300 cursor-pointer text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
+                        >
+                          + {view.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">
+                      Exterior views
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {exteriorAnglePresets.map((view) => (
+                        <button
+                          key={view.name}
+                          type="button"
+                          onClick={() => handleRegenerate(view.prompt, view.name)}
+                          disabled={!config.generatedImageUrl || isGenerating}
+                          className="border border-gray-300 cursor-pointer text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
+                        >
+                          + {view.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs uppercase tracking-wider text-gray-400 mb-2 mt-4">
+                      Generate angles
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {exteriorAnglePresets.map((view) => (
+                        <button
+                          key={view.name}
+                          type="button"
+                          onClick={() => handleRegenerate(view.prompt, view.name)}
+                          disabled={!config.generatedImageUrl || isGenerating}
+                          className="border border-gray-300 cursor-pointer text-gray-700 font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 bg-white disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
+                        >
+                          + {view.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

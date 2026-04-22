@@ -1,3 +1,5 @@
+import { Check } from 'lucide-react';
+
 interface Props { currentStep: number; }
 
 const steps = ['Vehicle', 'Configure'];
@@ -13,7 +15,7 @@ export default function StepBar({ currentStep }: Props) {
           <div key={label} className="flex items-center gap-2">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold
               ${done ? 'bg-white text-gray-900' : active ? 'border-2 border-white text-white' : 'border border-gray-600 text-gray-500'}`}>
-              {done ? '✓' : num}
+              {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden /> : num}
             </div>
             <span className={`text-xs font-medium ${active ? 'text-white' : done ? 'text-white' : 'text-gray-500'}`}>
               {label}

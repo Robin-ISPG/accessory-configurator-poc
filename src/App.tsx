@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { Car } from 'lucide-react';
 import type { Step, Configuration, Accessory, ApiProvider, VehicleConfigureMode } from './types';
 import './index.css';
 import StepBar from './components/ui/StepBar';
@@ -12,6 +13,11 @@ import {
   removePersistedItem,
   getStorageEstimate,
 } from './services/persistenceService';
+import {
+  GEMINI_SELECTABLE_IMAGE_MODELS,
+  getInitialGeminiSelectableModel,
+  type GeminiSelectableImageModelId,
+} from './services/imageService';
 
 const STORAGE_KEY = 'accessory-configurator-data';
 const HISTORY_KEY = 'accessory-configurator-history';
@@ -26,6 +32,7 @@ const defaultConfig: Configuration = {
   generatedImageUrl: null,
   categoryReferenceImages: {},
   accessoryReferenceImages: {},
+  exteriorBodyColor: null,
 };
 
 interface StoredData {
@@ -44,6 +51,7 @@ interface HistoryEntry {
   accessoryReferenceImages?: Record<string, string>;
   generatedImageUrl: string | null;
   totalPrice: number;
+  exteriorBodyColor?: Configuration['exteriorBodyColor'];
 }
 
 async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
@@ -108,7 +116,12 @@ function pruneHistoryEntries(entries: HistoryEntry[]): HistoryEntry[] {
 export default function App() {
   const getStoredProvider = (): ApiProvider => {
     const stored = localStorage.getItem('API_PROVIDER');
-    return stored === 'stability' || stored === 'nanobanana' ? stored : 'nanobanana';
+    if (stored === 'stability') {
+      localStorage.setItem('API_PROVIDER', 'nanobanana');
+      localStorage.removeItem('STABILITY_API_KEY');
+      return 'nanobanana';
+    }
+    return stored === 'vertex' || stored === 'nanobanana' || stored === 'gemini' ? stored : 'nanobanana';
   };
 
   const [step, setStep] = useState<Step>(1);
@@ -123,8 +136,19 @@ export default function App() {
   const [showApiKeyValue, setShowApiKeyValue] = useState(false);
   const [apiProvider, setApiProvider] = useState<ApiProvider>(() => getStoredProvider());
   const [apiKeys, setApiKeys] = useState({
-    stability: localStorage.getItem('STABILITY_API_KEY') || '',
     nanobanana: localStorage.getItem('NANOBANANA_API_KEY') || '',
+    gemini: localStorage.getItem('GEMINI_API_KEY') || '',
+  });
+  const [geminiImageModel, setGeminiImageModel] = useState<GeminiSelectableImageModelId>(() =>
+    getInitialGeminiSelectableModel()
+  );
+  const [vertexConfig, setVertexConfig] = useState({
+    projectId: localStorage.getItem('VERTEX_PROJECT_ID') || '',
+    location: localStorage.getItem('VERTEX_LOCATION') || 'us-central1',
+    authMode:
+      localStorage.getItem('VERTEX_AUTH_MODE') === 'api_key' ? ('api_key' as const) : ('oauth' as const),
+    accessToken: localStorage.getItem('VERTEX_ACCESS_TOKEN') || '',
+    apiKey: localStorage.getItem('VERTEX_API_KEY') || '',
   });
   const apiPanelRef = useRef<HTMLDivElement | null>(null);
   const apiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -134,11 +158,42 @@ export default function App() {
     localStorage.setItem('API_PROVIDER', provider);
   };
 
+  const handleGeminiImageModelChange = (id: GeminiSelectableImageModelId) => {
+    setGeminiImageModel(id);
+    localStorage.setItem('GEMINI_IMAGE_MODEL', id);
+    setShowApiKeyInput(false);
+  };
+
   const handleApiKeyChange = (provider: ApiProvider, val: string) => {
-    setApiKeys(prev => ({ ...prev, [provider]: val }));
-    const storageKey = provider === 'stability' ? 'STABILITY_API_KEY' : 'NANOBANANA_API_KEY';
-    if (val) localStorage.setItem(storageKey, val);
-    else localStorage.removeItem(storageKey);
+    if (provider === 'nanobanana') {
+      setApiKeys((prev) => ({ ...prev, nanobanana: val }));
+      if (val) localStorage.setItem('NANOBANANA_API_KEY', val);
+      else localStorage.removeItem('NANOBANANA_API_KEY');
+    }
+    if (provider === 'gemini') {
+      setApiKeys((prev) => ({ ...prev, gemini: val }));
+      if (val) localStorage.setItem('GEMINI_API_KEY', val);
+      else localStorage.removeItem('GEMINI_API_KEY');
+    }
+  };
+
+  const handleVertexField = (field: keyof typeof vertexConfig, val: string) => {
+    setVertexConfig((prev) => ({ ...prev, [field]: val }));
+    if (field === 'authMode') {
+      localStorage.setItem('VERTEX_AUTH_MODE', val === 'api_key' ? 'api_key' : 'oauth');
+      return;
+    }
+    const keyMap = {
+      projectId: 'VERTEX_PROJECT_ID',
+      location: 'VERTEX_LOCATION',
+      accessToken: 'VERTEX_ACCESS_TOKEN',
+      apiKey: 'VERTEX_API_KEY',
+    } as const;
+    const storageKey = keyMap[field as keyof typeof keyMap];
+    if (storageKey) {
+      if (val) localStorage.setItem(storageKey, val);
+      else localStorage.removeItem(storageKey);
+    }
   };
 
   const showToast = useCallback((message: string) => {
@@ -172,6 +227,7 @@ export default function App() {
             ...persistedData.config,
             vehicleConfigureMode: mode,
             accessoryReferenceImages: persistedData.config.accessoryReferenceImages || {},
+            exteriorBodyColor: persistedData.config.exteriorBodyColor ?? null,
             generatedImageUrl: persistedData.config.generatedImageUrl?.startsWith('blob:')
               ? null
               : persistedData.config.generatedImageUrl,
@@ -188,6 +244,7 @@ export default function App() {
               ...parsedData.config,
               vehicleConfigureMode: mode,
               accessoryReferenceImages: parsedData.config.accessoryReferenceImages || {},
+              exteriorBodyColor: parsedData.config.exteriorBodyColor ?? null,
               generatedImageUrl: parsedData.config.generatedImageUrl?.startsWith('blob:')
                 ? null
                 : parsedData.config.generatedImageUrl,
@@ -281,16 +338,66 @@ export default function App() {
     });
   }, [history, isLoaded, addLog]);
 
-  const handleApiKeyCommit = useCallback((provider: ApiProvider, value: string) => {
-    const trimmed = value.trim();
-    handleApiKeyChange(provider, trimmed);
+  const handleApiKeyCommit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      handleApiKeyChange('nanobanana', trimmed);
 
-    if (!trimmed) return;
+      if (!trimmed) return;
 
-    setShowApiKeyInput(false);
-    addLog('action', `${provider === 'stability' ? 'Stability AI' : 'NanoBanana API'} key saved`);
-    showToast('API key added');
-  }, [addLog, showToast]);
+      setShowApiKeyInput(false);
+      addLog('action', 'NanoBanana API key saved');
+      showToast('Saved');
+    },
+    [addLog, showToast]
+  );
+
+  const handleGeminiKeyCommit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      handleApiKeyChange('gemini', trimmed);
+
+      if (!trimmed) return;
+
+      setShowApiKeyInput(false);
+      addLog('action', 'Gemini API key saved');
+      showToast('Saved');
+    },
+    [addLog, showToast]
+  );
+
+  const handleVertexCommit = useCallback(() => {
+    const { projectId, location, accessToken, apiKey } = vertexConfig;
+    const p = projectId.trim();
+    const l = location.trim() || 'us-central1';
+    const t = accessToken.trim();
+    const k = apiKey.trim();
+    const authMode =
+      localStorage.getItem('VERTEX_AUTH_MODE') === 'api_key' ? 'api_key' : 'oauth';
+    if (p) localStorage.setItem('VERTEX_PROJECT_ID', p);
+    else localStorage.removeItem('VERTEX_PROJECT_ID');
+    if (l) localStorage.setItem('VERTEX_LOCATION', l);
+    else localStorage.removeItem('VERTEX_LOCATION');
+    localStorage.setItem('VERTEX_AUTH_MODE', authMode === 'api_key' ? 'api_key' : 'oauth');
+    if (t) localStorage.setItem('VERTEX_ACCESS_TOKEN', t);
+    else localStorage.removeItem('VERTEX_ACCESS_TOKEN');
+    if (k) localStorage.setItem('VERTEX_API_KEY', k);
+    else localStorage.removeItem('VERTEX_API_KEY');
+    setVertexConfig((prev) => ({
+      ...prev,
+      projectId: p,
+      location: l,
+      accessToken: t,
+      apiKey: k,
+      authMode,
+    }));
+    const credOk = p && (authMode === 'api_key' ? k.length > 0 : t.length > 0);
+    if (credOk) {
+      setShowApiKeyInput(false);
+      addLog('action', 'Vertex AI credentials saved');
+      showToast('Saved');
+    }
+  }, [vertexConfig, addLog, showToast]);
 
 
 
@@ -309,6 +416,7 @@ export default function App() {
       customPrompt: configToSave.customPrompt,
       categoryReferenceImages: configToSave.categoryReferenceImages || {},
       accessoryReferenceImages: configToSave.accessoryReferenceImages || {},
+      exteriorBodyColor: configToSave.exteriorBodyColor ?? null,
       generatedImageUrl: imageUrl,
       totalPrice,
     };
@@ -326,6 +434,7 @@ export default function App() {
       customPrompt: entry.customPrompt,
       categoryReferenceImages: entry.categoryReferenceImages || {},
       accessoryReferenceImages: entry.accessoryReferenceImages || {},
+      exteriorBodyColor: entry.exteriorBodyColor ?? null,
       generatedImageUrl: entry.generatedImageUrl,
     };
     setConfig(restoredConfig);
@@ -360,8 +469,11 @@ export default function App() {
         nextConfig.generatedImageUrl = null;
         nextConfig.generatedImages = [];
         nextConfig.customPrompt = '';
+        nextConfig.lastReframeViewName = null;
+        nextConfig.lastReframeViewPrompt = null;
         nextConfig.categoryReferenceImages = {};
         nextConfig.accessoryReferenceImages = {};
+        nextConfig.exteriorBodyColor = null;
       }
     }
 
@@ -434,81 +546,333 @@ export default function App() {
               }}
               className={`text-xs cursor-pointer px-3 py-1.5 rounded-lg transition-colors ${showApiKeyInput ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`}
             >
-              API Key
+              API SETTINGS
             </button>
             {showApiKeyInput && (
-              <div ref={apiPanelRef} className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
+              <div ref={apiPanelRef} className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-50">
                 <div className="mb-4">
                   <label className="block text-xs font-bold text-gray-300 mb-2">API Provider</label>
-                  <div className="flex bg-gray-900 rounded-lg p-1">
-                    <button 
+                  <div className="grid grid-cols-3 bg-gray-900 rounded-lg p-1 gap-1">
+                    <button
+                      type="button"
                       onClick={() => handleProviderChange('nanobanana')}
-                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-2 ${apiProvider === 'nanobanana' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                      className={`text-[10px] py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-1 ${apiProvider === 'nanobanana' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                     >
-                      {apiProvider === 'nanobanana' && <span className="h-2 w-2 rounded-full bg-green-400" />}
-                      NanoBanana API
+                      {apiProvider === 'nanobanana' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
+                      )}
+                      NanoBanana
                     </button>
-                    <button 
-                      onClick={() => handleProviderChange('stability')}
-                      className={`flex-1 text-xs py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-2 ${apiProvider === 'stability' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                    <button
+                      type="button"
+                      onClick={() => handleProviderChange('gemini')}
+                      className={`text-[10px] py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-1 ${apiProvider === 'gemini' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                     >
-                      {apiProvider === 'stability' && <span className="h-2 w-2 rounded-full bg-green-400" />}
-                      Stability AI
+                      {apiProvider === 'gemini' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
+                      )}
+                      Gemini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleProviderChange('vertex')}
+                      className={`text-[10px] py-1.5 rounded-md transition-all font-semibold flex items-center justify-center gap-1 ${apiProvider === 'vertex' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      {apiProvider === 'vertex' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
+                      )}
+                      Vertex
                     </button>
                   </div>
                 </div>
 
-                <label className="block text-xs font-bold text-gray-300 mb-2">
-                  {apiProvider === 'stability' ? 'Stability AI API Key' : 'NanoBanana API Key'}
-                </label>
-                <div className="relative">
-                  <input 
-                      type={showApiKeyValue ? 'text' : 'password'}
-                      value={apiKeys[apiProvider]}
-                      onChange={e => handleApiKeyChange(apiProvider, e.target.value)}
-                      onBlur={e => handleApiKeyCommit(apiProvider, e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          handleApiKeyCommit(apiProvider, (e.target as HTMLInputElement).value);
-                        }
-                      }}
-                      onPaste={e => {
-                        e.preventDefault();
-                        const pasted = e.clipboardData.getData('text');
-                        handleApiKeyCommit(apiProvider, pasted);
-                      }}
-                      placeholder={apiProvider === 'stability' ? 'sk-...' : 'Enter NanoBanana key'}
-                      className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                {apiProvider === 'nanobanana' ? (
+                  <>
+                    <label className="block text-xs font-bold text-gray-300 mb-2">
+                      NanoBanana API key
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKeyValue ? 'text' : 'password'}
+                        value={apiKeys.nanobanana}
+                        onChange={(e) => handleApiKeyChange('nanobanana', e.target.value)}
+                        onBlur={(e) => handleApiKeyCommit(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleApiKeyCommit((e.target as HTMLInputElement).value);
+                          }
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted = e.clipboardData.getData('text');
+                          handleApiKeyCommit(pasted);
+                        }}
+                        placeholder="Bearer token from nanobananaapi.ai"
+                        className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKeyValue((prev) => !prev)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                        title={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                        aria-label={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                      >
+                        {showApiKeyValue ? (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 002.83 2.83" />
+                            <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
+                            <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
+                          </svg>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-2 leading-tight">
+                      Async image generation via nanobananaapi.ai (multi-image when references are used).
+                      <br />
+                      Stored only in your browser.
+                    </p>
+                  </>
+                ) : apiProvider === 'gemini' ? (
+                  <>
+                    <label className="block text-xs font-bold text-gray-300 mb-2">
+                      Gemini API key (Google AI Studio)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKeyValue ? 'text' : 'password'}
+                        value={apiKeys.gemini}
+                        onChange={(e) => handleApiKeyChange('gemini', e.target.value)}
+                        onBlur={(e) => handleGeminiKeyCommit(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleGeminiKeyCommit((e.target as HTMLInputElement).value);
+                          }
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted = e.clipboardData.getData('text');
+                          handleGeminiKeyCommit(pasted);
+                        }}
+                        placeholder="From aistudio.google.com / ai.google.dev"
+                        className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKeyValue((prev) => !prev)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                        title={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                        aria-label={showApiKeyValue ? 'Hide API key' : 'Show API key'}
+                      >
+                        {showApiKeyValue ? (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 002.83 2.83" />
+                            <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
+                            <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
+                          </svg>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <fieldset className="mt-3 border-0 p-0 m-0">
+                      <legend className="text-[10px] font-bold text-gray-300 mb-1.5">Image model</legend>
+                      <div className="space-y-1.5">
+                        {GEMINI_SELECTABLE_IMAGE_MODELS.map((opt) => (
+                          <label
+                            key={opt.id}
+                            className={`flex cursor-pointer items-start gap-2 rounded-md border px-2 py-1.5 text-[10px] transition-colors ${
+                              geminiImageModel === opt.id
+                                ? 'border-yellow-500/70 bg-gray-900/90'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="gemini-image-model"
+                              value={opt.id}
+                              checked={geminiImageModel === opt.id}
+                              onChange={() => handleGeminiImageModelChange(opt.id)}
+                              className="mt-0.5 shrink-0"
+                            />
+                            <span className="min-w-0">
+                              <span className="font-semibold text-gray-200">{opt.label}</span>
+                              <span className="block font-mono text-[9px] text-gray-500 truncate" title={opt.id}>
+                                {opt.id}
+                              </span>
+                              <span className="block text-gray-400 leading-snug">{opt.description}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <p className="text-[10px] text-gray-400 mt-2 leading-snug">
+                      Multimodal request like gemini.google.com: reference images first, then your prompt; the model
+                      returns image output. In dev, requests go through the Vite proxy to avoid CORS. API key and model
+                      choice are stored only in this browser. Optional: set{' '}
+                      <span className="font-mono">VITE_GEMINI_IMAGE_MODEL</span> in <span className="font-mono">.env</span>{' '}
+                      when no radio selection is saved (same three IDs).
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label className="block text-xs font-bold text-gray-300 mb-1">GCP project ID</label>
+                    <input
+                      type="text"
+                      value={vertexConfig.projectId}
+                      onChange={(e) => handleVertexField('projectId', e.target.value)}
+                      onBlur={handleVertexCommit}
+                      placeholder="my-gcp-project"
+                      className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors mb-2"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKeyValue(prev => !prev)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
-                      title={showApiKeyValue ? 'Hide API key' : 'Show API key'}
-                      aria-label={showApiKeyValue ? 'Hide API key' : 'Show API key'}
-                    >
-                      {showApiKeyValue ? (
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 3l18 18" />
-                          <path d="M10.58 10.58a2 2 0 002.83 2.83" />
-                          <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
-                          <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
-                        </svg>
-                      ) : (
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      )}
-                    </button>
-                </div>
-                <p className="text-[10px] text-gray-400 mt-2 leading-tight">
-                  {apiProvider === 'nanobanana'
-                    ? 'Uses NanoBanana API async generation. Get your API key from nanobananaapi.ai'
-                    : 'Requires paid credits. Uses Stability AI Core endpoint for ultra-high quality.'}
-                  <br/>
-                  Stored only in your browser.
-                </p>
+                    <label className="block text-xs font-bold text-gray-300 mb-1">Region (Vertex location)</label>
+                    <input
+                      type="text"
+                      value={vertexConfig.location}
+                      onChange={(e) => handleVertexField('location', e.target.value)}
+                      onBlur={handleVertexCommit}
+                      placeholder="us-central1"
+                      className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors mb-3"
+                    />
+                    <label className="block text-xs font-bold text-gray-300 mb-1">Authentication</label>
+                    <div className="flex bg-gray-900 rounded-lg p-1 gap-1 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.setItem('VERTEX_AUTH_MODE', 'oauth');
+                          setVertexConfig((prev) => ({ ...prev, authMode: 'oauth' }));
+                        }}
+                        className={`flex-1 text-[10px] py-1.5 rounded-md font-semibold ${
+                          vertexConfig.authMode === 'oauth'
+                            ? 'bg-blue-500 text-white'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        OAuth token
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.setItem('VERTEX_AUTH_MODE', 'api_key');
+                          setVertexConfig((prev) => ({ ...prev, authMode: 'api_key' }));
+                        }}
+                        className={`flex-1 text-[10px] py-1.5 rounded-md font-semibold ${
+                          vertexConfig.authMode === 'api_key'
+                            ? 'bg-blue-500 text-white'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        GCP API key
+                      </button>
+                    </div>
+                    {vertexConfig.authMode === 'oauth' ? (
+                      <>
+                        <label className="block text-xs font-bold text-gray-300 mb-1">
+                          OAuth 2 access token (not the API key)
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showApiKeyValue ? 'text' : 'password'}
+                            value={vertexConfig.accessToken}
+                            onChange={(e) => handleVertexField('accessToken', e.target.value)}
+                            onBlur={handleVertexCommit}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleVertexCommit();
+                            }}
+                            placeholder="Output of: gcloud auth print-access-token"
+                            className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKeyValue((prev) => !prev)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                            title={showApiKeyValue ? 'Hide token' : 'Show token'}
+                            aria-label={showApiKeyValue ? 'Hide token' : 'Show token'}
+                          >
+                            {showApiKeyValue ? (
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 3l18 18" />
+                                <path d="M10.58 10.58a2 2 0 002.83 2.83" />
+                                <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
+                                <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
+                              </svg>
+                            ) : (
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-xs font-bold text-gray-300 mb-1">
+                          Google Cloud API key (Credentials → copy)
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showApiKeyValue ? 'text' : 'password'}
+                            value={vertexConfig.apiKey}
+                            onChange={(e) => handleVertexField('apiKey', e.target.value)}
+                            onBlur={handleVertexCommit}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleVertexCommit();
+                            }}
+                            placeholder="Bound to Vertex/Gemini + service account per Google Console"
+                            className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKeyValue((prev) => !prev)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                            title={showApiKeyValue ? 'Hide key' : 'Show key'}
+                            aria-label={showApiKeyValue ? 'Hide key' : 'Show key'}
+                          >
+                            {showApiKeyValue ? (
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 3l18 18" />
+                                <path d="M10.58 10.58a2 2 0 002.83 2.83" />
+                                <path d="M9.88 5.09A10.94 10.94 0 0112 5c5 0 9.27 3.11 11 7-1.02 2.29-2.78 4.22-5 5.41" />
+                                <path d="M6.61 6.61C4.62 7.95 3.06 9.83 2 12c1.22 2.75 3.44 4.98 6.19 6.19" />
+                              </svg>
+                            ) : (
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <p className="text-[10px] text-amber-200/90 mt-2 mb-2 leading-tight border border-amber-500/30 rounded px-2 py-1.5 bg-amber-500/10">
+                      Client / external POC: anything typed here lives in the browser and can be copied from DevTools or
+                      the network tab — including API keys and OAuth tokens. That does not stop misuse by visitors. For a
+                      public demo, prefer NanoBanana in this panel, use placeholder mode with no key, or put Vertex
+                      behind a small backend that holds credentials (Cloud Run / Functions) and optionally rate-limit or
+                      password-gate.
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-2 leading-tight">
+                      OAuth mode is for developers (<span className="font-mono">gcloud auth print-access-token</span>).
+                      API key mode must use a key created with “Authenticate API calls through a service account” — a
+                      normal unrestricted key gets “API keys are not supported” from Vertex. Restrict the key to Vertex AI;
+                      grant Vertex AI User (<span className="font-mono">roles/aiplatform.user</span>) on that service
+                      account.                       Optional env: <span className="font-mono">VITE_VERTEX_TEXT_MODEL</span> (default Imagen 4 fast),{' '}
+                      <span className="font-mono">VITE_VERTEX_EDIT_MODEL</span> (inpaint stays Imagen 3 capability). Stored
+                      only in this browser.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -569,8 +933,8 @@ export default function App() {
                       className="w-full h-32 object-cover"
                     />
                   ) : (
-                    <div className="w-full h-32 bg-[#2a2a2a] flex items-center justify-center">
-                      <span className="text-4xl">🛻</span>
+                    <div className="w-full h-32 bg-[#2a2a2a] flex items-center justify-center text-gray-500">
+                      <Car className="h-10 w-10" strokeWidth={1.5} aria-hidden />
                     </div>
                   )}
                   <div className="p-3">
