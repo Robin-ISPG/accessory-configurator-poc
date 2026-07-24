@@ -13,6 +13,7 @@ const categories: Category[] = ['exterior', 'wheels', 'interior', 'performance']
 
 import PreviewCanvas from '../PreviewCanvas/PreviewCanvas';
 import type { LogEntry } from '../LogBox/LogBox';
+import { apiProviderLabel } from '../../utils/apiProvider';
 
 interface Props {
   config: Configuration;
@@ -183,7 +184,12 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
       const result = await generateImage(genParams);
       stopProgress();
       setProgress(100);
-      setConfig({ ...config, generatedImageUrl: result.imageUrl });
+      setConfig({
+        ...config,
+        generatedImageUrl: result.imageUrl,
+        lastReframeViewName: null,
+        lastReframeViewPrompt: null,
+      });
       
       // Log API call details
       addLog('api', `${result.apiCallDetails.providerName} API Call - ${result.apiCallDetails.method}`, 
@@ -204,7 +210,7 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
       setProgress(0);
       setIsGenerating(false);
       const providerKey = localStorage.getItem('API_PROVIDER');
-      const activeProvider = providerKey === 'stability' ? 'Stability AI' : 'NanoBanana API';
+      const activeProvider = apiProviderLabel(providerKey);
       addLog('error', `${activeProvider} API Call Failed`, err instanceof Error ? err.message : 'Unknown error');
       alert('Image generation failed. Check your API key.');
     }
@@ -223,7 +229,7 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
             {/* Vehicle Header */}
             <div className="p-4 border-b border-gray-200 bg-slate-400 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                {config.vehicleConfigureMode === 'images' && config.vehicle?.baseImageUrl ? (
+                {config.vehicle?.baseImageUrl ? (
                   <div className="h-14 w-20 rounded-lg overflow-hidden border border-slate-500 shrink-0 bg-slate-600">
                     <img
                       src={config.vehicle.baseImageUrl}
@@ -339,6 +345,55 @@ export default function AccessoryGrid({ config, setConfig, onBack, isGenerating,
                     </div>
                   </div>
                 )}
+
+                {activeCategory === 'exterior' ? (
+                  <div className="mt-4 pt-3 border-t border-slate-200">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">
+                        Body color
+                      </div>
+                      <p className="text-[10px] text-slate-500 mb-2">
+                        Included in generate / regenerate prompts with your selections.
+                      </p>
+                      <div className="flex gap-3">
+                        {(
+                          [
+                            {
+                              id: 'firecracker-red' as const,
+                              label: 'Firecracker Red',
+                              swatch: '#C41E3A',
+                            },
+                            { id: 'black' as const, label: 'Black', swatch: '#111827' },
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setConfig({ ...config, exteriorBodyColor: opt.id });
+                              addLog('action', `Body color set: ${opt.label}`);
+                            }}
+                            className={`flex flex-1 flex-col items-center gap-1.5 rounded-lg border-2 px-2 py-2 transition-all
+                              ${
+                                config.exteriorBodyColor === opt.id
+                                  ? 'border-yellow-500 bg-yellow-50 ring-1 ring-yellow-400/40'
+                                  : 'border-slate-200 bg-slate-50/80 hover:border-slate-300'
+                              }`}
+                          >
+                            <span
+                              className="h-9 w-9 shrink-0 rounded-full border border-black/15 shadow-inner"
+                              style={{ backgroundColor: opt.swatch }}
+                              aria-hidden
+                            />
+                            <span className="text-[10px] font-bold text-gray-800 text-center leading-tight">
+                              {opt.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Selected Accessories Summary */}

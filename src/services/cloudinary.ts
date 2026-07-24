@@ -52,6 +52,23 @@ export function isDataUrl(s: string): boolean {
   return /^data:image\//i.test(s.trim());
 }
 
+/** Read a `blob:` object URL into a base64 data URL (e.g. before Cloudinary upload). */
+export async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
+  const res = await fetch(blobUrl);
+  if (!res.ok) throw new Error(`Failed to read generated image (${res.status})`);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const out = reader.result;
+      if (typeof out === 'string') resolve(out);
+      else reject(new Error('FileReader did not return a data URL'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function requireAdminConfig(): { cloud: string; apiKey: string; apiSecret: string } {
   const cloud = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '').trim();
   const apiKey = (import.meta.env.VITE_CLOUDINARY_API_KEY || '').trim();
